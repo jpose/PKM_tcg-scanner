@@ -150,6 +150,7 @@
       color: #34d399;
       font-weight: 600;
       line-height: 1.5;
+      text-align: left;
     }
 
     .badge {
@@ -215,14 +216,7 @@
 
     .collection-info { flex: 1; min-width: 0; }
     .collection-info h4 { margin: 0 0 2px 0; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .collection-info p.id-txt { margin: 0 0 4px 0; font-size: 0.75rem; color: var(--text-muted); }
-
-    .card-price-tag {
-      font-size: 0.75rem;
-      color: var(--price-color);
-      font-weight: bold;
-      margin-bottom: 8px;
-    }
+    .collection-info p.id-txt { margin: 0 0 6px 0; font-size: 0.75rem; color: var(--text-muted); }
 
     .qty-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; font-size: 0.78rem; color: #cbd5e1; }
     .qty-controls { display: flex; gap: 4px; align-items: center; }
@@ -265,7 +259,7 @@
         <button id="snap-btn" class="action-btn">Analyser la carte</button>
         <button id="reset-btn" class="action-btn secondary" style="display: none;" onclick="resetScan()">Scanner une autre carte</button>
         
-        <div id="status">Pret !</div>
+        <div id="status">Prêt !</div>
         <div id="debug-ai"></div>
 
         <div id="selection-grid" style="display: none;"></div>
@@ -281,12 +275,12 @@
   </div>
 
   <footer>
-    Version du fichier generee le : <span id="build-timestamp">24/08/2026 13:23:46</span>
+    Version du fichier générée le : <span id="build-timestamp">24/08/2026 13:35:00</span>
   </footer>
 
   <script>
     var db = new Dexie("TCGCollection");
-    db.version(4).stores({ cards: "id, name, image, priceEur, priceUsd, countNormal, countReverse, countHolo" });
+    db.version(5).stores({ cards: "id, name, image" });
 
     var video = document.getElementById("video");
     var snapBtn = document.getElementById("snap-btn");
@@ -301,7 +295,7 @@
 
     navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1280 } } })
       .then(function(stream) { video.srcObject = stream; })
-      .catch(function(err) { status.innerText = "Erreur camera : " + err.message; });
+      .catch(function(err) { status.innerText = "Erreur caméra : " + err.message; });
 
     async function switchTab(tab) {
       document.getElementById("tab-scan-btn").classList.toggle("active", tab === "scan");
@@ -324,24 +318,72 @@
       return "https://via.placeholder.com/75x105/1e293b/94a3b8?text=No+Img";
     }
 
-    function extractPrices(card) {
-      var eur = null;
-      var usd = null;
+    // Récupération multi-variantes (Normal, Reverse, Holo)
+    async function getCardPrices(card) {
+      var prices = {
+        normal: { eur: null, usd: null },
+        reverse: { eur: null, usd: null },
+        holo: { eur: null, usd: null }
+      };
 
+      // 1. TCGdex
       if (card && card.pricing) {
         if (card.pricing.cardmarket) {
           var cm = card.pricing.cardmarket;
-          eur = cm.trend || cm.avg || cm['trend-holo'] || cm['avg-holo'] || null;
+          prices.normal.eur = cm.trend || cm.avg || null;
+          prices.holo.eur = cm['trend-holo'] || cm['avg-holo'] || null;
+          prices.reverse.eur = cm['trend-reverse'] || cm['avg-reverse'] || prices.holo.eur || prices.normal.eur;
         }
-
         if (card.pricing.tcgplayer) {
           var tp = card.pricing.tcgplayer;
-          var variant = tp.normal || tp.holofoil || tp['reverse-holofoil'] || tp.reverse || {};
-          usd = variant.marketPrice || variant.midPrice || variant.lowPrice || null;
+          if (tp.normal) prices.normal.usd = tp.normal.marketPrice || tp.normal.midPrice || null;
+          if (tp.holofoil) prices.holo.usd = tp.holofoil.marketPrice || tp.holofoil.midPrice || null;
+          if (tp['reverse-holofoil']) prices.reverse.usd = tp['reverse-holofoil'].marketPrice || tp['reverse-holofoil'].midPrice || null;
         }
       }
 
-      return { eur: eur, usd: usd };
+      if (prices.normal.eur || prices.holo.eur || prices.normal.usd || prices.holo.usd) {
+        return prices;
+      }
+
+      // 2. Fallback Pokémon TCG API
+      try {
+        var rawNum = card.localId || (card.id ? card.id.split('-').pop() : null);
+        var num = rawNum ? parseInt(rawNum, 10) : null;
+
+        if (num && !isNaN(num)) {
+          var res = await fetch("https://api.pokemontcg.io/v2/cards?q=number:" + num);
+          if (res.ok) {
+            var data = await res.json();
+            if (data && data.data && data.data.length > 0) {
+              var matched = data.data.find(function(c) {
+                if (!c.set || !card.set) return false;
+                var cSet = (c.set.id || "").toLowerCase();
+                var cardSet = (card.set.id || "").toLowerCase();
+                return cSet === cardSet || c.set.name.toLowerCase().includes((card.set.name || "").toLowerCase());
+              }) || data.data[0];
+
+              if (matched.cardmarket && matched.cardmarket.prices) {
+                var cmp = matched.cardmarket.prices;
+                prices.normal.eur = cmp.trendPrice || cmp.averageSellPrice || null;
+                prices.reverse.eur = cmp.reverseHoloTrend || cmp.reverseHoloAvg || prices.normal.eur;
+                prices.holo.eur = cmp.trendPrice || cmp.averageSellPrice || null;
+              }
+
+              if (matched.tcgplayer && matched.tcgplayer.prices) {
+                var tpp = matched.tcgplayer.prices;
+                if (tpp.normal) prices.normal.usd = tpp.normal.marketPrice || tpp.normal.midPrice || null;
+                if (tpp.reverseHolofoil) prices.reverse.usd = tpp.reverseHolofoil.marketPrice || tpp.reverseHolofoil.midPrice || null;
+                if (tpp.holofoil) prices.holo.usd = tpp.holofoil.marketPrice || tpp.holofoil.midPrice || null;
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Erreur chargement cote fallback :", err);
+      }
+
+      return prices;
     }
 
     async function renderCollection() {
@@ -357,9 +399,17 @@
       var totalEstValue = 0;
 
       ownedCards.forEach(function(c) {
-        var qty = (c.countNormal || 0) + (c.countReverse || 0) + (c.countHolo || 0);
-        totalCardsCount += qty;
-        if (c.priceEur) totalEstValue += c.priceEur * qty;
+        var qNorm = c.countNormal || 0;
+        var qRev = c.countReverse || 0;
+        var qHolo = c.countHolo || 0;
+
+        totalCardsCount += qNorm + qRev + qHolo;
+
+        var valNorm = qNorm * (c.priceEurNormal || c.priceEur || 0);
+        var valRev = qRev * (c.priceEurReverse || c.priceEurNormal || c.priceEur || 0);
+        var valHolo = qHolo * (c.priceEurHolo || c.priceEurNormal || c.priceEur || 0);
+
+        totalEstValue += valNorm + valRev + valHolo;
       });
 
       statsContainer.innerHTML = "";
@@ -367,7 +417,7 @@
       statsInfo.textContent = ownedCards.length + " uniques | " + totalCardsCount + " exemplaires";
       var statsVal = document.createElement("span");
       statsVal.className = "total-val";
-      statsVal.textContent = "Valeur estimee : ~" + totalEstValue.toFixed(2) + " €";
+      statsVal.textContent = "Valeur estimée : ~" + totalEstValue.toFixed(2) + " €";
       statsContainer.appendChild(statsInfo);
       statsContainer.appendChild(statsVal);
 
@@ -380,7 +430,6 @@
       
       ownedCards.forEach(function(card) {
         var imgUrl = getCardImageUrl(card);
-        var priceTxt = card.priceEur ? card.priceEur.toFixed(2) + " € (Cardmarket)" : "Cote indisponible";
 
         var div = document.createElement("div");
         div.className = "collection-item";
@@ -411,21 +460,22 @@
         idTxt.className = "id-txt";
         idTxt.textContent = card.id;
 
-        var priceTag = document.createElement("div");
-        priceTag.className = "card-price-tag";
-        priceTag.textContent = "Cote : " + priceTxt;
-
         info.appendChild(header);
         info.appendChild(idTxt);
-        info.appendChild(priceTag);
 
-        ["Normal", "Reverse", "Holo"].forEach(function(variant) {
-          var key = "count" + variant;
+        var variantConfigs = [
+          { label: "Normal", key: "countNormal", price: card.priceEurNormal || card.priceEur },
+          { label: "Reverse", key: "countReverse", price: card.priceEurReverse || card.priceEurNormal || card.priceEur },
+          { label: "Holo", key: "countHolo", price: card.priceEurHolo || card.priceEurNormal || card.priceEur }
+        ];
+
+        variantConfigs.forEach(function(v) {
           var qtyRow = document.createElement("div");
           qtyRow.className = "qty-row";
           
+          var priceText = v.price ? " (" + Number(v.price).toFixed(2) + " €)" : "";
           var span = document.createElement("span");
-          span.innerHTML = variant + " : <strong>" + (card[key] || 0) + "</strong>";
+          span.innerHTML = v.label + priceText + " : <strong>" + (card[v.key] || 0) + "</strong>";
           
           var controls = document.createElement("div");
           controls.className = "qty-controls";
@@ -433,12 +483,12 @@
           var btnMinus = document.createElement("button");
           btnMinus.className = "qty-btn";
           btnMinus.textContent = "-";
-          btnMinus.onclick = function() { updateCollectionQty(card.id, key, -1); };
+          btnMinus.onclick = function() { updateCollectionQty(card.id, v.key, -1); };
 
           var btnPlus = document.createElement("button");
           btnPlus.className = "qty-btn";
           btnPlus.textContent = "+";
-          btnPlus.onclick = function() { updateCollectionQty(card.id, key, 1); };
+          btnPlus.onclick = function() { updateCollectionQty(card.id, v.key, 1); };
 
           controls.appendChild(btnMinus);
           controls.appendChild(btnPlus);
@@ -492,10 +542,10 @@
         if (apiData.error) throw new Error(apiData.error);
 
         var cardName = apiData.name;
-        debugAi.innerText = 'IA a trouve : "' + cardName + '"';
+        debugAi.innerText = 'IA a trouvé : "' + cardName + '"';
 
         if (!cardName) {
-          status.innerText = "Carte non reconnue. Reessayez.";
+          status.innerText = "Carte non reconnue. Réessayez.";
           snapBtn.disabled = false;
           return;
         }
@@ -506,7 +556,7 @@
         var validCards = Array.isArray(cards) ? cards.filter(function(c) { return Boolean(c.image); }) : [];
 
         if (validCards.length === 0) {
-          status.innerText = "Aucune carte trouvee.";
+          status.innerText = "Aucune carte trouvée.";
           snapBtn.disabled = false;
           return;
         }
@@ -524,10 +574,12 @@
     });
 
     async function fetchFullCardDetailsAndDisplay(cardId) {
-      status.innerText = "Chargement des details...";
+      status.innerText = "Chargement des détails et des cotes...";
       try {
         var res = await fetch("https://api.tcgdex.net/v2/fr/cards/" + cardId);
         var fullCard = await res.json();
+        
+        fullCard._prices = await getCardPrices(fullCard);
         checkAndDisplayCard(fullCard);
       } catch (e) {
         status.innerText = "Erreur lors du chargement de la carte.";
@@ -535,7 +587,7 @@
     }
 
     function showEditionSelection(cards) {
-      status.innerText = cards.length + " cartes trouvees. Choisis la tienne :";
+      status.innerText = cards.length + " cartes trouvées. Choisis la tienne :";
       cameraContainer.style.display = "none";
       snapBtn.style.display = "none";
       resetBtn.style.display = "block";
@@ -583,7 +635,7 @@
       var totalOwned = (localCard.countNormal || 0) + (localCard.countReverse || 0) + (localCard.countHolo || 0);
 
       var imgUrl = getCardImageUrl(card);
-      var prices = extractPrices(card);
+      var prices = card._prices || await getCardPrices(card);
 
       resultDiv.innerHTML = "";
       
@@ -599,15 +651,25 @@
       pId.style.margin = "0";
       pId.style.color = "var(--text-muted)";
       pId.style.fontSize = "0.85rem";
-      pId.textContent = "Edition / ID : " + card.id;
+      pId.textContent = "Édition / ID : " + card.id;
 
       var priceBox = document.createElement("div");
       priceBox.className = "price-box";
-      if (prices.eur || prices.usd) {
-        var text = "Cote estimee :\n";
-        if (prices.eur) text += "Cardmarket : ~" + Number(prices.eur).toFixed(2) + " €\n";
-        if (prices.usd) text += "TCGPlayer : ~$" + Number(prices.usd).toFixed(2);
-        priceBox.innerText = text;
+      
+      var hasPrices = prices && (prices.normal.eur || prices.reverse.eur || prices.holo.eur || prices.normal.usd || prices.reverse.usd || prices.holo.usd);
+
+      if (hasPrices) {
+        var text = "Cotes estimées :\n";
+        if (prices.normal.eur || prices.normal.usd) {
+          text += "• Normal : " + (prices.normal.eur ? prices.normal.eur.toFixed(2) + " €" : "") + (prices.normal.usd ? " ($" + prices.normal.usd.toFixed(2) + ")" : "") + "\n";
+        }
+        if (prices.reverse.eur || prices.reverse.usd) {
+          text += "• Reverse : " + (prices.reverse.eur ? prices.reverse.eur.toFixed(2) + " €" : "") + (prices.reverse.usd ? " ($" + prices.reverse.usd.toFixed(2) + ")" : "") + "\n";
+        }
+        if (prices.holo.eur || prices.holo.usd) {
+          text += "• Holo : " + (prices.holo.eur ? prices.holo.eur.toFixed(2) + " €" : "") + (prices.holo.usd ? " ($" + prices.holo.usd.toFixed(2) + ")" : "");
+        }
+        priceBox.innerText = text.trim();
       } else {
         priceBox.style.color = "var(--text-muted)";
         priceBox.style.borderColor = "var(--border-color)";
@@ -662,7 +724,7 @@
     async function addVariant(variantType) {
       if (!currentCardData) return;
       var id = currentCardData.id;
-      var prices = extractPrices(currentCardData);
+      var prices = currentCardData._prices || await getCardPrices(currentCardData);
 
       var localCard = await db.cards.get(id) || { 
         id: id, name: currentCardData.name, image: currentCardData.image, 
@@ -670,8 +732,10 @@
       };
       
       localCard.image = currentCardData.image;
-      localCard.priceEur = prices.eur ? Number(prices.eur) : null;
-      localCard.priceUsd = prices.usd ? Number(prices.usd) : null;
+      localCard.priceEurNormal = prices.normal.eur ? Number(prices.normal.eur) : null;
+      localCard.priceEurReverse = prices.reverse.eur ? Number(prices.reverse.eur) : null;
+      localCard.priceEurHolo = prices.holo.eur ? Number(prices.holo.eur) : null;
+
       localCard[variantType] = (localCard[variantType] || 0) + 1;
       
       await db.cards.put(localCard);
@@ -687,7 +751,7 @@
       snapBtn.style.display = "block";
       snapBtn.disabled = false;
       debugAi.innerText = "";
-      status.innerText = "Pret !";
+      status.innerText = "Prêt !";
     }
 
     if ("serviceWorker" in navigator) {
