@@ -29,7 +29,11 @@
       color: var(--text-main);
       text-align: center;
       min-height: 100vh;
+      display: flex;
+      flex-direction: column;
     }
+
+    .main-wrapper { flex: 1; }
 
     .tabs {
       display: flex;
@@ -231,40 +235,54 @@
 
     .delete-btn { background: transparent; color: #f87171; border: none; padding: 4px; font-size: 0.8rem; cursor: pointer; opacity: 0.8; margin-left: auto; }
     .item-header { display: flex; justify-content: space-between; align-items: flex-start; }
+
+    footer {
+      margin-top: auto;
+      padding-top: 24px;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      border-top: 1px dashed var(--border-color);
+    }
   </style>
 </head>
 <body>
 
-  <div class="tabs">
-    <button class="tab-btn active" id="tab-scan-btn" onclick="switchTab('scan')">Scanner</button>
-    <button class="tab-btn" id="tab-collection-btn" onclick="switchTab('collection')">Ma Collection</button>
-  </div>
+  <div class="main-wrapper">
+    <div class="tabs">
+      <button class="tab-btn active" id="tab-scan-btn" onclick="switchTab('scan')">Scanner</button>
+      <button class="tab-btn" id="tab-collection-btn" onclick="switchTab('collection')">Ma Collection</button>
+    </div>
 
-  <div class="views">
-    <div id="view-scan">
-      <h1>Scanner AI TCG</h1>
-      <p class="instructions">Placer la carte au centre du cadre</p>
+    <div class="views">
+      <div id="view-scan">
+        <h1>Scanner AI TCG</h1>
+        <p class="instructions">Placer la carte au centre du cadre</p>
 
-      <div class="camera-box" id="camera-container">
-        <video id="video" autoplay playsinline></video>
+        <div class="camera-box" id="camera-container">
+          <video id="video" autoplay playsinline></video>
+        </div>
+
+        <button id="snap-btn" class="action-btn">Analyser la carte</button>
+        <button id="reset-btn" class="action-btn secondary" style="display: none;" onclick="resetScan()">Scanner une autre carte</button>
+        
+        <div id="status">Pret !</div>
+        <div id="debug-ai"></div>
+
+        <div id="selection-grid" style="display: none;"></div>
+        <div id="result" class="card-result" style="display: none;"></div>
       </div>
 
-      <button id="snap-btn" class="action-btn">Analyser la carte</button>
-      <button id="reset-btn" class="action-btn secondary" style="display: none;" onclick="resetScan()">Scanner une autre carte</button>
-      
-      <div id="status">Pret !</div>
-      <div id="debug-ai"></div>
-
-      <div id="selection-grid" style="display: none;"></div>
-      <div id="result" class="card-result" style="display: none;"></div>
-    </div>
-
-    <div id="view-collection" style="display: none;">
-      <h1>Ma Collection</h1>
-      <div class="collection-stats" id="collection-stats">Chargement...</div>
-      <div id="collection-list" class="collection-grid-view"></div>
+      <div id="view-collection" style="display: none;">
+        <h1>Ma Collection</h1>
+        <div class="collection-stats" id="collection-stats">Chargement...</div>
+        <div id="collection-list" class="collection-grid-view"></div>
+      </div>
     </div>
   </div>
+
+  <footer>
+    Version du fichier generee le : <span id="build-timestamp">24/08/2026 13:21:25</span>
+  </footer>
 
   <script>
     var db = new Dexie("TCGCollection");
@@ -306,17 +324,26 @@
       return "https://via.placeholder.com/75x105/1e293b/94a3b8?text=No+Img";
     }
 
+    // Nouvelle fonction d'extraction qui va directement chercher les prix dans TCGdex
     function extractPrices(card) {
       var eur = null;
       var usd = null;
 
-      if (card && card.cardmarket && card.cardmarket.prices) {
-        eur = card.cardmarket.prices.trendPrice || card.cardmarket.prices.averageSellPrice || null;
-      }
-      if (card && card.tcgplayer && card.tcgplayer.prices) {
-        var prices = card.tcgplayer.prices;
-        var variant = prices.normal || prices.holofoil || prices.reverseHolofoil || {};
-        usd = variant.marketPrice || variant.midPrice || null;
+      // TCGdex renvoie parfois une struct "pricing" directe avec Cardmarket / TCGPlayer
+      if (card) {
+        if (card.cardmarket && card.cardmarket.prices) {
+          eur = card.cardmarket.prices.trendPrice || card.cardmarket.prices.averageSellPrice || card.cardmarket.prices.avg1 || null;
+        } else if (card.pricing && card.pricing.cardmarket) {
+          eur = card.pricing.cardmarket.trend || card.pricing.cardmarket.avg || null;
+        }
+
+        if (card.tcgplayer && card.tcgplayer.prices) {
+          var prices = card.tcgplayer.prices;
+          var variant = prices.normal || prices.holofoil || prices.reverseHolofoil || {};
+          usd = variant.marketPrice || variant.midPrice || null;
+        } else if (card.pricing && card.pricing.tcgplayer) {
+          usd = card.pricing.tcgplayer.mid || card.pricing.tcgplayer.market || null;
+        }
       }
 
       return { eur: eur, usd: usd };
@@ -481,7 +508,7 @@
         status.innerText = 'Recherche de "' + cardName + '"...';
         var res = await fetch("https://api.tcgdex.net/v2/fr/cards?name=" + encodeURIComponent(cardName));
         var cards = await res.json();
-        var validCards = Array.isArray(cards) ? cards.filter(function(c) { return c.image; }) : [];
+        var validCards = Array.isArray(cards) ? cards.filter(function(c) { return Boolean(c.image); }) : [];
 
         if (validCards.length === 0) {
           status.innerText = "Aucune carte trouvee.";
@@ -504,21 +531,9 @@
     async function fetchFullCardDetailsAndDisplay(cardId) {
       status.innerText = "Chargement des details...";
       try {
+        // TCGdex renvoie les détails complets, y compris les prix si disponibles
         var res = await fetch("https://api.tcgdex.net/v2/fr/cards/" + cardId);
         var fullCard = await res.json();
-
-        try {
-          var priceRes = await fetch("https://api.pokemontcg.io/v2/cards/" + cardId);
-          if (priceRes.ok) {
-            var priceData = await priceRes.json();
-            if (priceData && priceData.data) {
-              fullCard.cardmarket = priceData.data.cardmarket;
-              fullCard.tcgplayer = priceData.data.tcgplayer;
-            }
-          }
-        } catch (e) {
-          console.warn("Impossible de recuperer la cote", e);
-        }
 
         checkAndDisplayCard(fullCard);
       } catch (e) {
@@ -597,8 +612,8 @@
       priceBox.className = "price-box";
       if (prices.eur || prices.usd) {
         var text = "Cote estimee :\n";
-        if (prices.eur) text += "Cardmarket : ~" + prices.eur.toFixed(2) + " €\n";
-        if (prices.usd) text += "TCGPlayer : ~$" + prices.usd.toFixed(2);
+        if (prices.eur) text += "Cardmarket : ~" + Number(prices.eur).toFixed(2) + " €\n";
+        if (prices.usd) text += "TCGPlayer : ~$" + Number(prices.usd).toFixed(2);
         priceBox.innerText = text;
       } else {
         priceBox.style.color = "var(--text-muted)";
@@ -662,8 +677,8 @@
       };
       
       localCard.image = currentCardData.image;
-      localCard.priceEur = prices.eur;
-      localCard.priceUsd = prices.usd;
+      localCard.priceEur = prices.eur ? Number(prices.eur) : null;
+      localCard.priceUsd = prices.usd ? Number(prices.usd) : null;
       localCard[variantType] = (localCard[variantType] || 0) + 1;
       
       await db.cards.put(localCard);
