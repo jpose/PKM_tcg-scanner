@@ -300,10 +300,17 @@
   </div>
 
   <footer>
-    Version du fichier : 24/08/2026
+    Version du fichier : <span id="build-timestamp"></span>
   </footer>
 
   <script>
+    // Horodatage dynamique automatique (Option 3)
+    const LAST_BUILD = "2026-08-24T15:55:00";
+    document.getElementById("build-timestamp").textContent = new Date(LAST_BUILD).toLocaleString("fr-FR", {
+      dateStyle: "short",
+      timeStyle: "short"
+    });
+
     var db = new Dexie("TCGCollection");
     db.version(5).stores({ cards: "id, name, image" });
 
@@ -339,7 +346,10 @@
         return card.image + "/low.png";
       }
       if (card && card.id) {
-        return "https://assets.tcgdex.net/fr/" + card.id.split('-')[0] + "/" + card.id.split('-')[1] + "/low.png";
+        var parts = card.id.split('-');
+        if (parts.length >= 2) {
+          return "https://assets.tcgdex.net/fr/" + parts[0] + "/" + parts[1] + "/low.png";
+        }
       }
       return "https://via.placeholder.com/150x210/1e293b/94a3b8?text=Image+Indisponible";
     }
@@ -548,7 +558,8 @@
         var apiData = await apiRes.json();
         if (apiData.error) throw new Error(apiData.error);
 
-        var cardName = apiData.name;
+        var rawName = apiData.name || "";
+        var cardName = rawName.trim().replace(/[^\w\s-]/gi, ''); // Nettoyage de sécurité
         debugAi.innerText = 'IA a trouvé : "' + cardName + '"';
 
         if (!cardName) {
@@ -558,12 +569,20 @@
         }
 
         status.innerText = 'Recherche TCGdex pour "' + cardName + '"...';
-        var res = await fetch("https://api.tcgdex.net/v2/fr/cards?name=" + encodeURIComponent(cardName));
+        
+        var fetchUrl = "https://api.tcgdex.net/v2/fr/cards?name=" + encodeURIComponent(cardName);
+        var res = await fetch(fetchUrl);
+        
+        if (!res.ok) {
+          throw new Error("L'API TCGdex n'a pas répondu (Code " + res.status + ")");
+        }
+
         var cards = await res.json();
 
         if (!Array.isArray(cards) || cards.length === 0) {
-          status.innerText = "Aucune carte trouvée.";
-          snapBtn.disabled = false;
+          status.innerText = 'Aucun résultat trouvé pour "' + cardName + '".';
+          resetBtn.style.display = "block";
+          snapBtn.style.display = "none";
           return;
         }
 
@@ -575,7 +594,8 @@
 
       } catch (err) {
         status.innerText = "Erreur : " + err.message;
-        snapBtn.disabled = false;
+        resetBtn.style.display = "block";
+        snapBtn.style.display = "none";
       }
     });
 
@@ -583,10 +603,12 @@
       status.innerText = "Chargement des détails...";
       try {
         var res = await fetch("https://api.tcgdex.net/v2/fr/cards/" + cardId);
+        if (!res.ok) throw new Error("Détails de la carte introuvables");
         var fullCard = await res.json();
         checkAndDisplayCard(fullCard);
       } catch (e) {
-        status.innerText = "Erreur lors du chargement des détails.";
+        status.innerText = "Erreur : " + e.message;
+        resetBtn.style.display = "block";
       }
     }
 
