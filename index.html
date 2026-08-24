@@ -304,7 +304,7 @@
   </footer>
 
   <script>
-    const LAST_BUILD = "2026-08-24T16:00:00";
+    const LAST_BUILD = "2026-08-24T16:04:00";
     document.getElementById("build-timestamp").textContent = new Date(LAST_BUILD).toLocaleString("fr-FR", {
       dateStyle: "short",
       timeStyle: "short"
@@ -376,27 +376,28 @@
         var apiData = await apiRes.json();
         if (apiData.error) throw new Error(apiData.error);
 
-        var cardName = (apiData.name || "").trim();
-        debugAi.innerText = 'IA a trouvé : "' + cardName + '"';
+        var rawCardName = (apiData.name || "").trim();
+        debugAi.innerText = 'IA a trouvé : "' + rawCardName + '"';
 
-        if (!cardName) {
+        if (!rawCardName) {
           status.innerText = "Carte non reconnue. Réessayez.";
           snapBtn.disabled = false;
           return;
         }
 
-        status.innerText = 'Recherche TCGdex pour "' + cardName + '"...';
+        // Nettoyage des suffixes pour l'API TCGdex (ex: "Majaspic ex" -> "Majaspic")
+        var cleanSearchName = rawCardName.replace(/\b(ex|vmax|vstar|gx|v)\b/gi, "").trim();
+
+        status.innerText = 'Recherche TCGdex pour "' + cleanSearchName + '"...';
         
-        var res = await fetch("https://api.tcgdex.net/v2/fr/cards?name=" + encodeURIComponent(cardName));
+        var res = await fetch("https://api.tcgdex.net/v2/fr/cards?name=" + encodeURIComponent(cleanSearchName));
         if (!res.ok) throw new Error("Erreur TCGdex (" + res.status + ")");
 
         var rawData = await res.json();
-        
-        // CORRECTION CLÉ : Forcer sous forme de Tableau même si TCGdex renvoie un seul objet
         var cardsList = Array.isArray(rawData) ? rawData : (rawData ? [rawData] : []);
 
         if (cardsList.length === 0) {
-          status.innerText = 'Aucune carte trouvée pour "' + cardName + '".';
+          status.innerText = 'Aucune carte trouvée pour "' + cleanSearchName + '".';
           resetBtn.style.display = "block";
           snapBtn.style.display = "none";
           return;
@@ -416,7 +417,7 @@
     });
 
     function showEditionSelection(cards) {
-      status.innerText = cards.length + " cartes trouvées. Choisis la tienne :";
+      status.innerText = cards.length + " versions trouvées. Choisis la tienne :";
       cameraContainer.style.display = "none";
       snapBtn.style.display = "none";
       resetBtn.style.display = "block";
