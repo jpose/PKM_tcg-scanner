@@ -1,5 +1,5 @@
 export default async function handler(req, res) {
-  // Config des en-têtes CORS
+  // En-têtes CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -15,22 +15,32 @@ export default async function handler(req, res) {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      return res.status(500).json({ error: 'Clé GEMINI_API_KEY absente dans Vercel' });
+      return res.status(500).json({ error: 'Clé GEMINI_API_KEY absente dans les variables Vercel' });
     }
 
-    const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    // Gestion robuste du Body sous Node 24
+    let body = req.body;
+    if (typeof body === 'string') {
+      try {
+        body = JSON.parse(body);
+      } catch (parseErr) {
+        return res.status(400).json({ error: 'Format JSON invalide dans le body' });
+      }
+    }
+
     const { image, base64 } = body || {};
-
     let rawBase64 = base64 || image;
+
     if (!rawBase64) {
-      return res.status(400).json({ error: 'Aucune image envoyée' });
+      return res.status(400).json({ error: 'Aucune image envoyée dans la requête' });
     }
 
+    // Nettoyage de l'en-tête Data URL si présent
     if (rawBase64.includes(',')) {
       rawBase64 = rawBase64.split(',')[1];
     }
 
-    // Liste des modèles à tester dans l'ordre en cas de quota dépassé
+    // Liste des modèles reconnus par l'API REST Google Gemini
     const GEMINI_MODELS = [
       "gemini-2.0-flash",
       "gemini-2.0-flash-lite",
@@ -39,16 +49,19 @@ export default async function handler(req, res) {
       "gemini-1.5-pro"
     ];
 
-    let lastErrorMessage = "";
+    let lastErrorDetails = "Aucune réponse d'aucun modèle";
 
-    // Boucle de secours sur la liste des modèles
-    for (const modelName of GEMINI_MODELS) {
+    // Parcours séquentiel des modèles
+    for (let i = 0; i < GEMINI_MODELS.length; i++) {
+      const modelName = GEMINI_MODELS[i];
+      const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+
       try {
-        console.log(`[Scan API] Essai avec : ${modelName}`);
-
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
+        const response = await fetch(targetUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json' 
+          },
           body: JSON.stringify({
             contents: [{
               parts: [
@@ -61,16 +74,16 @@ export default async function handler(req, res) {
 
         const data = await response.json();
 
-        // Si une erreur survient (quota 429, modèle introuvable, etc.)
+        // Si Google renvoie une erreur (quota 429, modèle indisponible, etc.)
         if (data.error) {
-          lastErrorMessage = data.error.message || `Erreur HTTP ${response.status}`;
-          console.warn(`[Scan API] Échec sur ${modelName} : ${lastErrorMessage}`);
-          
-          // Si c'est un problème de quota ou d'erreur temporaire, on essaie le modèle suivant
-          continue;
+          lastErrorDetails = data.error.message || `Code HTTP ${response.status}`;
+          console.warn(`[Scan API] ${modelName} a échoué: ${lastErrorDetails}`);
+          continue; // Essaye le modèle suivant
         }
 
-        const cardName = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+        // Extraction sécurisée du résultat
+        const candidate = data.candidates?.[0];
+        const cardName = candidate?.content?.parts?.[0]?.text?.trim();
 
         if (cardName) {
           return res.status(200).json({ 
@@ -78,20 +91,21 @@ export default async function handler(req, res) {
             modelUsed: modelName 
           });
         }
-      } catch (modelErr) {
-        lastErrorMessage = modelErr.message;
-        console.warn(`[Scan API] Erreur réseau/fetch sur ${modelName} :`, modelErr.message);
+      } catch (err) {
+        lastErrorDetails = err.message || "Erreur réseau";
+        console.warn(`[Scan API] Exception sur ${modelName}:`, lastErrorDetails);
         continue;
       }
     }
 
-    // Si tous les modèles de la liste ont échoué
-    return res.status(429).json({ 
+    // Si aucun modèle n'a fonctionné
+    return res.status(429).json({
       error: "Tous les modèles Gemini ont dépassé leur quota. Réessaie dans une minute.",
-      details: lastErrorMessage 
+      details: lastErrorDetails
     });
 
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
+  } catch (globalError) {
+    console.error("[Scan API] Erreur globale serveur:", globalError);
+    return res.status(500).json({ error: "Erreur d'exécution serveur : " + globalError.message });
   }
 }
