@@ -304,8 +304,7 @@
   </footer>
 
   <script>
-    // Horodatage dynamique
-    const LAST_BUILD = "2026-08-24T15:58:00";
+    const LAST_BUILD = "2026-08-24T16:00:00";
     document.getElementById("build-timestamp").textContent = new Date(LAST_BUILD).toLocaleString("fr-FR", {
       dateStyle: "short",
       timeStyle: "short"
@@ -389,21 +388,24 @@
         status.innerText = 'Recherche TCGdex pour "' + cardName + '"...';
         
         var res = await fetch("https://api.tcgdex.net/v2/fr/cards?name=" + encodeURIComponent(cardName));
-        if (!res.ok) throw new Error("Erreur serveur TCGdex (" + res.status + ")");
+        if (!res.ok) throw new Error("Erreur TCGdex (" + res.status + ")");
 
-        var cards = await res.json();
+        var rawData = await res.json();
+        
+        // CORRECTION CLÉ : Forcer sous forme de Tableau même si TCGdex renvoie un seul objet
+        var cardsList = Array.isArray(rawData) ? rawData : (rawData ? [rawData] : []);
 
-        if (!Array.isArray(cards) || cards.length === 0) {
+        if (cardsList.length === 0) {
           status.innerText = 'Aucune carte trouvée pour "' + cardName + '".';
           resetBtn.style.display = "block";
           snapBtn.style.display = "none";
           return;
         }
 
-        if (cards.length === 1) {
-          await fetchFullCardDetailsAndDisplay(cards[0].id);
+        if (cardsList.length === 1) {
+          await fetchFullCardDetailsAndDisplay(cardsList[0].id);
         } else {
-          showEditionSelection(cards);
+          showEditionSelection(cardsList);
         }
 
       } catch (err) {
@@ -414,7 +416,7 @@
     });
 
     function showEditionSelection(cards) {
-      status.innerText = cards.length + " versions trouvées. Choisis la tienne :";
+      status.innerText = cards.length + " cartes trouvées. Choisis la tienne :";
       cameraContainer.style.display = "none";
       snapBtn.style.display = "none";
       resetBtn.style.display = "block";
@@ -427,15 +429,15 @@
         
         var img = document.createElement("img");
         img.src = getCardImageUrl(card);
-        img.alt = card.name;
+        img.alt = card.name || "Carte";
 
         var pName = document.createElement("p");
-        pName.textContent = card.name;
+        pName.textContent = card.name || "Inconnu";
 
         var pId = document.createElement("p");
         pId.style.color = "var(--text-muted)";
         pId.style.fontWeight = "normal";
-        pId.textContent = card.id;
+        pId.textContent = card.id || "";
 
         div.appendChild(img);
         div.appendChild(pName);
@@ -457,7 +459,7 @@
         var fullCard = await res.json();
         checkAndDisplayCard(fullCard);
       } catch (e) {
-        status.innerText = "Erreur chargement détails carte.";
+        status.innerText = "Erreur au chargement de la carte.";
       }
     }
 
