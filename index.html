@@ -165,6 +165,13 @@
     .badge-owned { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e; }
     .badge-new { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid #3b82f6; }
 
+    .price-tag {
+      font-size: 1.1rem;
+      font-weight: 800;
+      color: var(--price-color);
+      margin: 8px 0 4px;
+    }
+
     .variant-box {
       margin-top: 14px;
       text-align: left;
@@ -304,14 +311,14 @@
   </footer>
 
   <script>
-    const LAST_BUILD = "2026-08-24T16:04:00";
+    const LAST_BUILD = "2026-08-24T16:06:00";
     document.getElementById("build-timestamp").textContent = new Date(LAST_BUILD).toLocaleString("fr-FR", {
       dateStyle: "short",
       timeStyle: "short"
     });
 
     var db = new Dexie("TCGCollection");
-    db.version(5).stores({ cards: "id, name, image" });
+    db.version(6).stores({ cards: "id, name, image, priceEur" });
 
     var video = document.getElementById("video");
     var snapBtn = document.getElementById("snap-btn");
@@ -353,6 +360,16 @@
       return "https://via.placeholder.com/150x210/1e293b/94a3b8?text=Image+Indisponible";
     }
 
+    // Extraction de la cote estimée dans les données de l'API
+    function extractCardPrice(card) {
+      if (card.pricing) {
+        if (card.pricing.cardmarket && card.pricing.cardmarket.avg) return card.pricing.cardmarket.avg;
+        if (card.pricing.cardmarket && card.pricing.cardmarket.trend) return card.pricing.cardmarket.trend;
+        if (card.pricing.tcgplayer && card.pricing.tcgplayer.market) return card.pricing.tcgplayer.market;
+      }
+      return null;
+    }
+
     snapBtn.addEventListener("click", async function() {
       snapBtn.disabled = true;
       status.innerText = "Analyse par l'IA...";
@@ -385,7 +402,6 @@
           return;
         }
 
-        // Nettoyage des suffixes pour l'API TCGdex (ex: "Majaspic ex" -> "Majaspic")
         var cleanSearchName = rawCardName.replace(/\b(ex|vmax|vstar|gx|v)\b/gi, "").trim();
 
         status.innerText = 'Recherche TCGdex pour "' + cleanSearchName + '"...';
@@ -454,7 +470,7 @@
     }
 
     async function fetchFullCardDetailsAndDisplay(cardId) {
-      status.innerText = "Chargement des détails...";
+      status.innerText = "Chargement des détails & de la cote...";
       try {
         var res = await fetch("https://api.tcgdex.net/v2/fr/cards/" + cardId);
         var fullCard = await res.json();
@@ -471,6 +487,9 @@
       selectionGrid.style.display = "none";
       resetBtn.style.display = "block";
       
+      var price = extractCardPrice(card);
+      currentCardData.extractedPrice = price;
+
       var localCard = await db.cards.get(card.id) || { countNormal: 0, countReverse: 0, countHolo: 0 };
       var totalOwned = (localCard.countNormal || 0) + (localCard.countReverse || 0) + (localCard.countHolo || 0);
 
@@ -489,6 +508,10 @@
       pId.style.color = "var(--text-muted)";
       pId.style.fontSize = "0.85rem";
       pId.textContent = "ID : " + card.id;
+
+      var priceDiv = document.createElement("div");
+      priceDiv.className = "price-tag";
+      priceDiv.textContent = price ? ("Cote estimée : ~" + Number(price).toFixed(2) + " €") : "Cote indisponible";
 
       var badge = document.createElement("div");
       badge.className = "badge " + (totalOwned > 0 ? "badge-owned" : "badge-new");
@@ -528,6 +551,7 @@
       resultDiv.appendChild(img);
       resultDiv.appendChild(h3);
       resultDiv.appendChild(pId);
+      resultDiv.appendChild(priceDiv);
       resultDiv.appendChild(badge);
       resultDiv.appendChild(variantBox);
       resultDiv.appendChild(btnGroup);
@@ -539,10 +563,12 @@
 
       var localCard = await db.cards.get(id) || { 
         id: id, name: currentCardData.name, image: getCardImageUrl(currentCardData), 
-        countNormal: 0, countReverse: 0, countHolo: 0 
+        countNormal: 0, countReverse: 0, countHolo: 0,
+        priceEur: currentCardData.extractedPrice || 0
       };
       
       localCard.image = getCardImageUrl(currentCardData);
+      localCard.priceEur = currentCardData.extractedPrice || localCard.priceEur || 0;
       localCard[variantType] = (localCard[variantType] || 0) + 1;
       
       await db.cards.put(localCard);
@@ -576,14 +602,11 @@
         var qNorm = c.countNormal || 0;
         var qRev = c.countReverse || 0;
         var qHolo = c.countHolo || 0;
+        var unitPrice = c.priceEur || 0;
 
-        totalCardsCount += qNorm + qRev + qHolo;
-
-        var valNorm = qNorm * (c.priceEurNormal || c.priceEur || 0);
-        var valRev = qRev * (c.priceEurReverse || c.priceEurNormal || c.priceEur || 0);
-        var valHolo = qHolo * (c.priceEurHolo || c.priceEurNormal || c.priceEur || 0);
-
-        totalEstValue += valNorm + valRev + valHolo;
+        var totalQty = qNorm + qRev + qHolo;
+        totalCardsCount += totalQty;
+        totalEstValue += totalQty * unitPrice;
       });
 
       statsContainer.innerHTML = "";
@@ -632,24 +655,24 @@
         
         var idTxt = document.createElement("p");
         idTxt.className = "id-txt";
-        idTxt.textContent = card.id;
+        var priceDisplay = card.priceEur ? (" — Cote : ~" + Number(card.priceEur).toFixed(2) + " €") : "";
+        idTxt.textContent = card.id + priceDisplay;
 
         info.appendChild(header);
         info.appendChild(idTxt);
 
         var variantConfigs = [
-          { label: "Normal", key: "countNormal", price: card.priceEurNormal || card.priceEur },
-          { label: "Reverse", key: "countReverse", price: card.priceEurReverse || card.priceEurNormal || card.priceEur },
-          { label: "Holo", key: "countHolo", price: card.priceEurHolo || card.priceEurNormal || card.priceEur }
+          { label: "Normal", key: "countNormal" },
+          { label: "Reverse", key: "countReverse" },
+          { label: "Holo", key: "countHolo" }
         ];
 
         variantConfigs.forEach(function(v) {
           var qtyRow = document.createElement("div");
           qtyRow.className = "qty-row";
           
-          var priceText = v.price ? " (" + Number(v.price).toFixed(2) + " €)" : "";
           var span = document.createElement("span");
-          span.innerHTML = v.label + priceText + " : <strong>" + (card[v.key] || 0) + "</strong>";
+          span.innerHTML = v.label + " : <strong>" + (card[v.key] || 0) + "</strong>";
           
           var controls = document.createElement("div");
           controls.className = "qty-controls";
