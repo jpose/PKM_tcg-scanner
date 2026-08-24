@@ -328,7 +328,7 @@
   </div>
 
   <footer>
-    Version mise à jour le : <span id="build-timestamp">24/08/2026 16:50:00</span>
+    Version mise à jour le : <span id="build-timestamp">24/08/2026 16:56:00</span>
   </footer>
 
   <script>
@@ -348,7 +348,6 @@
     var currentCardData = null;
     var cameraStream = null;
 
-    // Directement démarrer la caméra
     startCamera();
 
     function startCamera() {
@@ -627,7 +626,6 @@
             throw new Error("Format de fichier invalide (doit être une liste de cartes).");
           }
 
-          // Validation renforcée des objets du JSON
           var isValid = importedData.every(function(item) {
             return item && typeof item === 'object' && typeof item.id === 'string' && typeof item.name === 'string';
           });
@@ -665,6 +663,7 @@
       }
     }
 
+    // Gestion du bouton de scan avec Cooldown de 4 secondes
     snapBtn.addEventListener("click", async function() {
       clearError();
       
@@ -674,10 +673,24 @@
       }
 
       snapBtn.disabled = true;
+      var cooldownSeconds = 4;
+      var originalText = "Analyser la carte";
+
+      function startCooldown() {
+        var timer = setInterval(function() {
+          snapBtn.innerText = "Patienter (" + cooldownSeconds + "s)...";
+          cooldownSeconds--;
+          if (cooldownSeconds < 0) {
+            clearInterval(timer);
+            snapBtn.disabled = false;
+            snapBtn.innerText = originalText;
+          }
+        }, 1000);
+      }
+
       status.innerText = "Analyse par l'IA Gemini...";
       debugAi.innerText = "";
 
-      // Capture photo sécurisée
       var canvas = document.createElement("canvas");
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
@@ -694,7 +707,10 @@
           body: JSON.stringify({ image: fullDataUrl, base64: base64Raw })
         });
 
-        // Diagnostic d'erreur réseau HTTP approfondi
+        if (apiRes.status === 429) {
+          throw new Error("Quota Gemini dépassé (15 scans/min max). Attendez 1 minute avant de re-scanner.");
+        }
+
         if (!apiRes.ok) {
           var errorText = await apiRes.text();
           var parsedError = "";
@@ -715,7 +731,7 @@
 
         if (!cardName || typeof cardName !== "string" || !cardName.trim()) {
           showError("L'IA n'a pas pu lire le nom de la carte sur l'image.");
-          snapBtn.disabled = false;
+          startCooldown();
           return;
         }
 
@@ -729,7 +745,7 @@
 
         if (validCards.length === 0) {
           showError('Aucune carte trouvée dans la base de données pour "' + cardName + '".');
-          snapBtn.disabled = false;
+          startCooldown();
           return;
         }
 
@@ -742,7 +758,7 @@
       } catch (err) {
         console.error("Scan Error:", err);
         showError(err.message);
-        snapBtn.disabled = false;
+        startCooldown();
       }
     });
 
@@ -898,7 +914,6 @@
     async function addVariant(variantType) {
       if (!currentCardData) return;
       var id = currentCardData.id;
-      // Re-utilise la valeur mise en cache
       var prices = currentCardData._prices || { normal: {}, reverse: {}, holo: {} };
 
       var localCard = await db.cards.get(id) || { 
@@ -926,6 +941,7 @@
       cameraContainer.style.display = "block";
       snapBtn.style.display = "block";
       snapBtn.disabled = false;
+      snapBtn.innerText = "Analyser la carte";
       debugAi.innerText = "";
       status.innerText = "Prêt !";
       startCamera();
