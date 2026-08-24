@@ -1,10 +1,16 @@
 export default async function handler(req, res) {
+  // Config des en-têtes CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Méthode non autorisée' });
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Méthode non autorisée' });
+  }
 
   try {
     const apiKey = process.env.GEMINI_API_KEY;
@@ -12,38 +18,22 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Clé GEMINI_API_KEY absente dans Vercel' });
     }
 
-    let body = req.body;
-    if (typeof body === 'string') {
-      try { body = JSON.parse(body); } catch (e) {}
+    const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    const { image } = body || {};
+
+    if (!image) {
+      return res.status(400).json({ error: 'Aucune image envoyée' });
     }
 
-    const { image, base64 } = body || {};
-    let rawBase64 = base64 || image;
-
-    if (!rawBase64) {
-      return res.status(400).json({ error: 'Aucune image reçue dans la requête' });
-    }
-
-    if (rawBase64.includes(',')) {
-      rawBase64 = rawBase64.split(',')[1];
-    }
-    rawBase64 = rawBase64.replace(/(\r\n|\n|\r|\s)/gm, "");
-
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6:generateContent?key=${apiKey}`;
-
-    const response = await fetch(url, {
+    // Utilisation stricte de gemini-3.6-flash
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{
           parts: [
-            { text: "Identifie cette carte Pokémon. Donne uniquement son nom officiel en français, sans aucun autre texte." },
-            {
-              inline_data: {
-                mime_type: "image/jpeg",
-                data: rawBase64
-              }
-            }
+            { text: "Identifie cette carte Pokémon. Donne uniquement son NOM officiel en français, sans aucun autre texte ni ponctuation." },
+            { inline_data: { mime_type: "image/jpeg", data: image } }
           ]
         }]
       })
@@ -51,12 +41,22 @@ export default async function handler(req, res) {
 
     const data = await response.json();
 
-    // Si Google renvoie une erreur (400, 429, 403...), on transmet tout le détail
+    // 1. Détection spécifique du dépassement de quota / limite
+    if (response.status === 429 || data.error?.status === 'RESOURCE_EXHAUSTED') {
+      return res.status(429).json({
+        limit_exceeded: true,
+        error: 'Quota ou limite de requêtes dépassé (Rate Limit).',
+        details: data.error?.message || 'Trop de requêtes envoyées à Gemini.'
+      });
+    }
+
+    // 2. Erreurs Google standards (400, 403, 500, etc.)
     if (!response.ok || data.error) {
-      return res.status(response.status).json({
-        http_code: response.status,
-        message: "Erreur renvoyée par l'API Google",
-        erreur_google: data.error || data
+      return res.status(response.status || 500).json({
+        limit_exceeded: false,
+        error: data.error?.message || 'Erreur Gemini',
+        status_code: response.status,
+        details: data.error || data
       });
     }
 
@@ -64,6 +64,6 @@ export default async function handler(req, res) {
     return res.status(200).json({ name: cardName });
 
   } catch (err) {
-    return res.status(500).json({ error: "Erreur serveur Vercel", details: err.message });
+    return res.status(500).json({ error: err.message });
   }
 }
