@@ -165,22 +165,17 @@
     .badge-owned { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e; }
     .badge-new { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid #3b82f6; }
 
-    .price-tag {
-      font-size: 1.1rem;
-      font-weight: 800;
-      color: var(--price-color);
-      margin: 8px 0 4px;
-    }
-
-    .variant-box {
-      margin-top: 14px;
-      text-align: left;
+    .price-list {
+      margin: 10px 0;
+      padding: 8px 12px;
       background: #0f172a;
-      padding: 12px 16px;
-      border-radius: 10px;
-      font-size: 0.85rem;
+      border-radius: 8px;
       border: 1px solid var(--border-color);
+      font-size: 0.8rem;
+      text-align: left;
     }
+    .price-item { display: flex; justify-content: space-between; padding: 3px 0; }
+    .price-item span.val { font-weight: bold; color: var(--price-color); }
 
     .btn-group { display: flex; gap: 8px; margin-top: 12px; }
     .btn-group button { margin-top: 0; font-size: 0.8rem; padding: 10px 4px; }
@@ -201,17 +196,8 @@
 
     .collection-stats span.total-val { color: var(--price-color); font-size: 1.05rem; }
 
-    .backup-actions {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 16px;
-    }
-
-    .backup-actions button {
-      margin-top: 0;
-      font-size: 0.8rem;
-      padding: 10px;
-    }
+    .backup-actions { display: flex; gap: 8px; margin-bottom: 16px; }
+    .backup-actions button { margin-top: 0; font-size: 0.8rem; padding: 10px; }
 
     .collection-grid-view { display: flex; flex-direction: column; gap: 12px; }
 
@@ -293,12 +279,16 @@
 
       <div id="view-collection" style="display: none;">
         <h1>Ma Collection</h1>
-        <div class="collection-stats" id="collection-stats">Chargement...</div>
 
         <div class="backup-actions">
-          <button class="action-btn secondary" onclick="exportCollection()">Exporter JSON</button>
-          <button class="action-btn secondary" onclick="document.getElementById('import-file').click()">Importer JSON</button>
-          <input type="file" id="import-file" accept=".json" style="display: none;" onchange="importCollection(event)">
+          <button class="action-btn secondary" onclick="exportCollection()">Exporter (JSON)</button>
+          <button class="action-btn secondary" onclick="document.getElementById('import-file').click()">Importer</button>
+          <input type="file" id="import-file" style="display: none;" accept=".json" onchange="importCollection(event)">
+        </div>
+
+        <div class="collection-stats" id="collection-stats">
+          <div>Cartes : 0 | Exemplaires : 0</div>
+          <div>Valeur estimée : <span class="total-val">0.00 €</span></div>
         </div>
 
         <div id="collection-list" class="collection-grid-view"></div>
@@ -307,497 +297,398 @@
   </div>
 
   <footer>
-    Version du fichier : <span id="build-timestamp"></span>
+    Propulsé par TCGdex API & DexieDB
   </footer>
 
   <script>
-    const LAST_BUILD = "2026-08-24T16:15:00";
-    document.getElementById("build-timestamp").textContent = new Date(LAST_BUILD).toLocaleString("fr-FR", {
-      dateStyle: "short",
-      timeStyle: "short"
+    // Initialisation BDD Dexie
+    const db = new Dexie("PokemonCollectionDB");
+    db.version(2).stores({
+      cards: 'id, name, setCode, countNormal, countReverse, countHolo, prices'
     });
 
-    var db = new Dexie("TCGCollection");
-    db.version(6).stores({ cards: "id, name, image, priceEur" });
+    const video = document.getElementById('video');
+    const snapBtn = document.getElementById('snap-btn');
+    const resetBtn = document.getElementById('reset-btn');
+    const statusDiv = document.getElementById('status');
+    const debugDiv = document.getElementById('debug-ai');
+    const resultDiv = document.getElementById('result');
+    const selectionGrid = document.getElementById('selection-grid');
+    const cameraContainer = document.getElementById('camera-container');
 
-    var video = document.getElementById("video");
-    var snapBtn = document.getElementById("snap-btn");
-    var resetBtn = document.getElementById("reset-btn");
-    var status = document.getElementById("status");
-    var debugAi = document.getElementById("debug-ai");
-    var resultDiv = document.getElementById("result");
-    var selectionGrid = document.getElementById("selection-grid");
-    var cameraContainer = document.getElementById("camera-container");
+    let currentCardData = null;
 
-    var currentCardData = null;
+    // Démarrage caméra
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+      .then(stream => { video.srcObject = stream; })
+      .catch(err => { statusDiv.innerText = "Erreur caméra: " + err.message; });
 
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1280 } } })
-      .then(function(stream) { video.srcObject = stream; })
-      .catch(function(err) { status.innerText = "Erreur caméra : " + err.message; });
+    function switchTab(tab) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById('view-scan').style.display = 'none';
+      document.getElementById('view-collection').style.display = 'none';
 
-    async function switchTab(tab) {
-      document.getElementById("tab-scan-btn").classList.toggle("active", tab === "scan");
-      document.getElementById("tab-collection-btn").classList.toggle("active", tab === "collection");
-      document.getElementById("view-scan").style.display = (tab === "scan") ? "block" : "none";
-      document.getElementById("view-collection").style.display = (tab === "collection") ? "block" : "none";
-
-      if (tab === "collection") {
-        await syncMissingPrices();
-        await renderCollection();
+      if (tab === 'scan') {
+        document.getElementById('tab-scan-btn').classList.add('active');
+        document.getElementById('view-scan').style.display = 'block';
+      } else {
+        document.getElementById('tab-collection-btn').classList.add('active');
+        document.getElementById('view-collection').style.display = 'block';
+        loadCollection();
       }
     }
 
-    function getCardImageUrl(card) {
-      if (card && card.image) {
-        if (card.image.endsWith(".png") || card.image.endsWith(".jpg")) return card.image;
-        return card.image + "/low.png";
-      }
-      if (card && card.id) {
-        var parts = card.id.split('-');
-        if (parts.length >= 2) {
-          return "https://assets.tcgdex.net/fr/" + parts[0] + "/" + parts[1] + "/low.png";
-        }
-      }
-      return "https://via.placeholder.com/150x210/1e293b/94a3b8?text=Image+Indisponible";
-    }
-
-    function extractCardPrice(card) {
-      if (!card || !card.pricing) return null;
-
-      if (card.pricing.cardmarket) {
-        if (typeof card.pricing.cardmarket.avg === "number") return card.pricing.cardmarket.avg;
-        if (typeof card.pricing.cardmarket.trend === "number") return card.pricing.cardmarket.trend;
-        if (typeof card.pricing.cardmarket.low === "number") return card.pricing.cardmarket.low;
-      }
-      if (card.pricing.tcgplayer) {
-        if (typeof card.pricing.tcgplayer.market === "number") return card.pricing.tcgplayer.market;
-        if (typeof card.pricing.tcgplayer.mid === "number") return card.pricing.tcgplayer.mid;
-      }
-      return null;
-    }
-
-    // Fonction de synchronisation automatique pour les cartes de la collection sans cote
-    async function syncMissingPrices() {
-      var allCards = await db.cards.toArray();
-      var missing = allCards.filter(function(c) {
-        return c.priceEur === undefined || c.priceEur === null || c.priceEur === 0;
-      });
-
-      if (missing.length === 0) return;
-
-      for (var i = 0; i < missing.length; i++) {
-        var c = missing[i];
-        try {
-          var res = await fetch("https://api.tcgdex.net/v2/fr/cards/" + c.id);
-          if (res.ok) {
-            var fullCard = await res.json();
-            var price = extractCardPrice(fullCard);
-            if (price) {
-              c.priceEur = price;
-              await db.cards.put(c);
-            }
-          }
-        } catch (e) {
-          console.warn("Impossible de mettre à jour le prix pour : " + c.id);
-        }
-      }
-    }
-
-    snapBtn.addEventListener("click", async function() {
+    snapBtn.addEventListener('click', async () => {
+      statusDiv.innerText = "Capture et analyse en cours...";
+      debugDiv.innerText = "";
       snapBtn.disabled = true;
-      status.innerText = "Analyse par l'IA...";
-      debugAi.innerText = "";
 
-      var canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      var ctx = canvas.getContext("2d");
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      const ctx = canvas.getContext('2d');
       ctx.drawImage(video, 0, 0);
 
-      var base64Image = canvas.toDataURL("image/jpeg", 0.8).split(",")[1];
+      const base64Image = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
 
       try {
-        var apiRes = await fetch("/api/scan", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ image: base64Image })
+        const aiResponse = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: "claude-3-5-sonnet-20241022",
+            max_tokens: 150,
+            messages: [{
+              role: "user",
+              content: [
+                { type: "image", source: { type: "base64", media_type: "image/jpeg", data: base64Image } },
+                { type: "text", text: "Identifie cette carte Pokémon. Renvoie UNIQUEMENT un objet JSON valide avec les clés: name (nom anglais/international), localId (numéro de la carte dans le set ex: '025' ou '12'), setCode (code de l'extension si lisible sinon null). Exemple: {\"name\": \"Pikachu\", \"localId\": \"025\", \"setCode\": \"151\"}" }
+              ]
+            }]
+          })
         });
 
-        var apiData = await apiRes.json();
-        if (apiData.error) throw new Error(apiData.error);
+        const aiData = await aiResponse.json();
+        const responseText = aiData.content[0].text;
+        debugDiv.innerText = "IA: " + responseText;
 
-        var rawCardName = (apiData.name || "").trim();
-        debugAi.innerText = 'IA a trouvé : "' + rawCardName + '"';
-
-        if (!rawCardName) {
-          status.innerText = "Carte non reconnue. Réessayez.";
-          snapBtn.disabled = false;
-          return;
-        }
-
-        var cleanSearchName = rawCardName.replace(/\b(ex|vmax|vstar|gx|v)\b/gi, "").trim();
-
-        status.innerText = 'Recherche TCGdex pour "' + cleanSearchName + '"...';
-        
-        var res = await fetch("https://api.tcgdex.net/v2/fr/cards?name=" + encodeURIComponent(cleanSearchName));
-        if (!res.ok) throw new Error("Erreur TCGdex (" + res.status + ")");
-
-        var rawData = await res.json();
-        var cardsList = Array.isArray(rawData) ? rawData : (rawData ? [rawData] : []);
-
-        if (cardsList.length === 0) {
-          status.innerText = 'Aucune carte trouvée pour "' + cleanSearchName + '".';
-          resetBtn.style.display = "block";
-          snapBtn.style.display = "none";
-          return;
-        }
-
-        if (cardsList.length === 1) {
-          await fetchFullCardDetailsAndDisplay(cardsList[0].id);
-        } else {
-          showEditionSelection(cardsList);
-        }
+        const parsed = JSON.parse(responseText.match(/\{[\s\S]*\}/)[0]);
+        await searchCardInTCGdex(parsed.name, parsed.localId);
 
       } catch (err) {
-        status.innerText = "Erreur : " + err.message;
-        resetBtn.style.display = "block";
-        snapBtn.style.display = "none";
+        statusDiv.innerText = "Erreur d'analyse IA.";
+        console.error(err);
+        snapBtn.disabled = false;
       }
     });
 
-    function showEditionSelection(cards) {
-      status.innerText = cards.length + " versions trouvées. Choisis la tienne :";
-      cameraContainer.style.display = "none";
-      snapBtn.style.display = "none";
-      resetBtn.style.display = "block";
-      selectionGrid.innerHTML = "";
-      selectionGrid.style.display = "grid";
+    async function searchCardInTCGdex(name, localId) {
+      statusDiv.innerText = `Recherche dans TCGdex pour "${name}"...`;
+      try {
+        const res = await fetch(`https://api.tcgdex.net/v2/fr/cards?name=${encodeURIComponent(name)}`);
+        const cards = await res.json();
 
-      cards.slice(0, 20).forEach(function(card) {
-        var div = document.createElement("div");
-        div.className = "card-choice";
-        
-        var img = document.createElement("img");
-        img.src = getCardImageUrl(card);
-        img.alt = card.name || "Carte";
+        let matches = cards.filter(c => c.localId === localId || c.id.endsWith(`-${localId}`));
 
-        var pName = document.createElement("p");
-        pName.textContent = card.name || "Inconnu";
+        if (matches.length === 0) {
+          matches = cards.slice(0, 4);
+        }
 
-        var pId = document.createElement("p");
-        pId.style.color = "var(--text-muted)";
-        pId.style.fontWeight = "normal";
-        pId.textContent = card.id || "";
+        if (matches.length === 1) {
+          fetchFullCardDetails(matches[0].id);
+        } else if (matches.length > 1) {
+          displaySelectionGrid(matches);
+        } else {
+          statusDiv.innerText = "Aucune carte trouvée dans la base de données.";
+          snapBtn.disabled = false;
+        }
+      } catch (err) {
+        statusDiv.innerText = "Erreur de connexion à TCGdex.";
+        snapBtn.disabled = false;
+      }
+    }
 
-        div.appendChild(img);
-        div.appendChild(pName);
-        div.appendChild(pId);
+    function displaySelectionGrid(cards) {
+      cameraContainer.style.display = 'none';
+      snapBtn.style.display = 'none';
+      statusDiv.innerText = "Plusieurs cartes correspondent. Choisissez la bonne :";
+      selectionGrid.innerHTML = '';
+      selectionGrid.style.display = 'grid';
 
-        div.onclick = function() {
-          selectionGrid.style.display = "none";
-          fetchFullCardDetailsAndDisplay(card.id);
-        };
-
+      cards.forEach(card => {
+        const div = document.createElement('div');
+        div.className = 'card-choice';
+        div.onclick = () => fetchFullCardDetails(card.id);
+        div.innerHTML = `
+          <img src="${card.image}/high.png" onerror="this.src='${card.image}/low.png'" alt="${card.name}">
+          <p>${card.name} (#${card.localId})</p>
+        `;
         selectionGrid.appendChild(div);
       });
     }
 
-    async function fetchFullCardDetailsAndDisplay(cardId) {
-      status.innerText = "Chargement des détails & de la cote...";
+    // Extraction sécurisée des cotations par déclinaison
+    function extractPrices(data) {
+      const prices = { normal: 0, reverse: 0, holo: 0, avgGlobal: 0 };
+
+      // Si Cardmarket est dispo dans TCGdex
+      if (data.cardmarket && data.cardmarket.prices) {
+        const p = data.cardmarket.prices;
+        prices.normal = p.averageSellPrice || p.avg || 0;
+        prices.reverse = p.reverseHoloAvg || p["avg-holo"] || 0;
+        prices.holo = p.holoAvg || p["avg-holo"] || prices.normal;
+        prices.avgGlobal = p.trendPrice || prices.normal;
+      } else if (data.tcgplayer && data.tcgplayer.prices) {
+        const p = data.tcgplayer.prices;
+        if (p.normal) prices.normal = p.normal.market || p.normal.mid || 0;
+        if (p.reverseHolofoil) prices.reverse = p.reverseHolofoil.market || p.reverseHolofoil.mid || 0;
+        if (p.holofoil) prices.holo = p.holofoil.market || p.holofoil.mid || 0;
+      }
+
+      return prices;
+    }
+
+    async function fetchFullCardDetails(cardId) {
+      selectionGrid.style.display = 'none';
+      statusDiv.innerText = "Chargement des détails...";
+
       try {
-        var res = await fetch("https://api.tcgdex.net/v2/fr/cards/" + cardId);
-        var fullCard = await res.json();
-        checkAndDisplayCard(fullCard);
-      } catch (e) {
-        status.innerText = "Erreur au chargement de la carte.";
+        const res = await fetch(`https://api.tcgdex.net/v2/fr/cards/${cardId}`);
+        const data = await res.json();
+
+        const prices = extractPrices(data);
+
+        currentCardData = {
+          id: data.id,
+          name: data.name,
+          localId: data.localId,
+          setCode: data.set ? data.set.name : 'Inconnu',
+          image: `${data.image}/high.jpg`,
+          prices: prices
+        };
+
+        const existing = await db.cards.get(data.id);
+        showCardResult(currentCardData, existing);
+
+      } catch (err) {
+        statusDiv.innerText = "Erreur lors du chargement des détails.";
+        snapBtn.disabled = false;
       }
     }
 
-    async function checkAndDisplayCard(card) {
-      currentCardData = card;
-      cameraContainer.style.display = "none";
-      snapBtn.style.display = "none";
-      selectionGrid.style.display = "none";
-      resetBtn.style.display = "block";
-      
-      var price = extractCardPrice(card);
-      currentCardData.extractedPrice = price;
+    function showCardResult(card, existing) {
+      cameraContainer.style.display = 'none';
+      snapBtn.style.display = 'none';
+      resetBtn.style.display = 'block';
+      statusDiv.innerText = "Carte identifiée !";
 
-      var localCard = await db.cards.get(card.id) || { countNormal: 0, countReverse: 0, countHolo: 0 };
-      var totalOwned = (localCard.countNormal || 0) + (localCard.countReverse || 0) + (localCard.countHolo || 0);
+      const cNormal = existing ? (existing.countNormal || 0) : 0;
+      const cReverse = existing ? (existing.countReverse || 0) : 0;
+      const cHolo = existing ? (existing.countHolo || 0) : 0;
 
-      resultDiv.innerHTML = "";
-      
-      var img = document.createElement("img");
-      img.src = getCardImageUrl(card);
-      img.alt = card.name;
+      const isOwned = (cNormal + cReverse + cHolo) > 0;
+      const badgeHtml = isOwned 
+        ? `<span class="badge badge-owned">Possédée (${cNormal + cReverse + cHolo})</span>`
+        : `<span class="badge badge-new">Nouvelle carte</span>`;
 
-      var h3 = document.createElement("h3");
-      h3.style.margin = "10px 0 2px";
-      h3.textContent = card.name;
+      resultDiv.innerHTML = `
+        <img src="${card.image}" alt="${card.name}">
+        <h3>${card.name}</h3>
+        <p style="font-size:0.8rem; color:var(--text-muted); margin: -4px 0 8px;">Ext: ${card.setCode} (#${card.localId})</p>
+        ${badgeHtml}
 
-      var pId = document.createElement("p");
-      pId.style.margin = "0";
-      pId.style.color = "var(--text-muted)";
-      pId.style.fontSize = "0.85rem";
-      pId.textContent = "ID : " + card.id;
+        <div class="price-list">
+          <div class="price-item"><span>Normal :</span><span class="val">${card.prices.normal ? card.prices.normal.toFixed(2) + ' €' : 'N/A'}</span></div>
+          <div class="price-item"><span>Reverse :</span><span class="val">${card.prices.reverse ? card.prices.reverse.toFixed(2) + ' €' : 'N/A'}</span></div>
+          <div class="price-item"><span>Holo :</span><span class="val">${card.prices.holo ? card.prices.holo.toFixed(2) + ' €' : 'N/A'}</span></div>
+        </div>
 
-      var priceDiv = document.createElement("div");
-      priceDiv.className = "price-tag";
-      priceDiv.textContent = price ? ("Cote estimée : ~" + Number(price).toFixed(2) + " €") : "Cote non disponible";
-
-      var badge = document.createElement("div");
-      badge.className = "badge " + (totalOwned > 0 ? "badge-owned" : "badge-new");
-      badge.textContent = totalOwned > 0 ? ("En possession (Total : x" + totalOwned + ")") : "Nouvelle carte !";
-
-      var variantBox = document.createElement("div");
-      variantBox.className = "variant-box";
-      variantBox.innerHTML = '<p style="margin:4px 0;">Normal : x' + (localCard.countNormal || 0) + '</p>' +
-                             '<p style="margin:4px 0;">Reverse : x' + (localCard.countReverse || 0) + '</p>' +
-                             '<p style="margin:4px 0;">Holo : x' + (localCard.countHolo || 0) + '</p>';
-
-      var btnGroup = document.createElement("div");
-      btnGroup.className = "btn-group";
-
-      var btnNormal = document.createElement("button");
-      btnNormal.className = "action-btn";
-      btnNormal.textContent = "+ Normal";
-      btnNormal.onclick = function() { addVariant("countNormal"); };
-
-      var btnReverse = document.createElement("button");
-      btnReverse.className = "action-btn btn-reverse";
-      btnReverse.textContent = "+ Reverse";
-      btnReverse.onclick = function() { addVariant("countReverse"); };
-
-      var btnHolo = document.createElement("button");
-      btnHolo.className = "action-btn btn-holo";
-      btnHolo.textContent = "+ Holo";
-      btnHolo.onclick = function() { addVariant("countHolo"); };
-
-      btnGroup.appendChild(btnNormal);
-      btnGroup.appendChild(btnReverse);
-      btnGroup.appendChild(btnHolo);
-
-      status.innerText = "";
-      resultDiv.style.display = "block";
-      
-      resultDiv.appendChild(img);
-      resultDiv.appendChild(h3);
-      resultDiv.appendChild(pId);
-      resultDiv.appendChild(priceDiv);
-      resultDiv.appendChild(badge);
-      resultDiv.appendChild(variantBox);
-      resultDiv.appendChild(btnGroup);
+        <p style="font-size:0.8rem; font-weight:bold; margin-top:12px;">Ajouter à la collection :</p>
+        <div class="btn-group">
+          <button class="action-btn secondary" onclick="addCardVariant('normal')">+ Normal</button>
+          <button class="action-btn btn-reverse" onclick="addCardVariant('reverse')">+ Reverse</button>
+          <button class="action-btn btn-holo" onclick="addCardVariant('holo')">+ Holo</button>
+        </div>
+      `;
+      resultDiv.style.display = 'block';
     }
 
-    async function addVariant(variantType) {
+    async function addCardVariant(variant) {
       if (!currentCardData) return;
-      var id = currentCardData.id;
 
-      var localCard = await db.cards.get(id) || { 
-        id: id, name: currentCardData.name, image: getCardImageUrl(currentCardData), 
-        countNormal: 0, countReverse: 0, countHolo: 0,
-        priceEur: currentCardData.extractedPrice || 0
-      };
+      let card = await db.cards.get(currentCardData.id);
+
+      if (!card) {
+        card = {
+          id: currentCardData.id,
+          name: currentCardData.name,
+          localId: currentCardData.localId,
+          setCode: currentCardData.setCode,
+          image: currentCardData.image,
+          prices: currentCardData.prices,
+          countNormal: 0,
+          countReverse: 0,
+          countHolo: 0
+        };
+      }
+
+      if (variant === 'normal') card.countNormal = (card.countNormal || 0) + 1;
+      if (variant === 'reverse') card.countReverse = (card.countReverse || 0) + 1;
+      if (variant === 'holo') card.countHolo = (card.countHolo || 0) + 1;
+
+      await db.cards.put(card);
+      statusDiv.innerText = `Ajouté en version ${variant.toUpperCase()} !`;
       
-      localCard.image = getCardImageUrl(currentCardData);
-      localCard.priceEur = currentCardData.extractedPrice || localCard.priceEur || 0;
-      localCard[variantType] = (localCard[variantType] || 0) + 1;
-      
-      await db.cards.put(localCard);
-      checkAndDisplayCard(currentCardData);
+      const updated = await db.cards.get(card.id);
+      showCardResult(currentCardData, updated);
     }
 
     function resetScan() {
-      currentCardData = null;
-      resultDiv.style.display = "none";
-      selectionGrid.style.display = "none";
-      resetBtn.style.display = "none";
-      cameraContainer.style.display = "block";
-      snapBtn.style.display = "block";
+      resultDiv.style.display = 'none';
+      selectionGrid.style.display = 'none';
+      cameraContainer.style.display = 'block';
+      snapBtn.style.display = 'block';
+      resetBtn.style.display = 'none';
       snapBtn.disabled = false;
-      debugAi.innerText = "";
-      status.innerText = "Prêt !";
+      statusDiv.innerText = "Prêt !";
+      debugDiv.innerText = "";
+      currentCardData = null;
     }
 
-    async function renderCollection() {
-      var listContainer = document.getElementById("collection-list");
-      var statsContainer = document.getElementById("collection-stats");
-      var allCards = await db.cards.toArray();
-      var ownedCards = allCards.filter(function(c) {
-        return ((c.countNormal || 0) + (c.countReverse || 0) + (c.countHolo || 0)) > 0;
-      });
+    async function updateQuantity(id, variant, delta) {
+      const card = await db.cards.get(id);
+      if (!card) return;
 
-      var totalCardsCount = 0;
-      var totalEstValue = 0;
+      if (variant === 'normal') card.countNormal = Math.max(0, (card.countNormal || 0) + delta);
+      if (variant === 'reverse') card.countReverse = Math.max(0, (card.countReverse || 0) + delta);
+      if (variant === 'holo') card.countHolo = Math.max(0, (card.countHolo || 0) + delta);
 
-      ownedCards.forEach(function(c) {
-        var qNorm = c.countNormal || 0;
-        var qRev = c.countReverse || 0;
-        var qHolo = c.countHolo || 0;
-        var unitPrice = c.priceEur || 0;
+      const total = (card.countNormal || 0) + (card.countReverse || 0) + (card.countHolo || 0);
 
-        var totalQty = qNorm + qRev + qHolo;
-        totalCardsCount += totalQty;
-        totalEstValue += totalQty * unitPrice;
-      });
+      if (total === 0) {
+        await db.cards.delete(id);
+      } else {
+        await db.cards.put(card);
+      }
 
-      statsContainer.innerHTML = "";
-      var statsInfo = document.createElement("div");
-      statsInfo.textContent = ownedCards.length + " uniques | " + totalCardsCount + " exemplaires";
-      var statsVal = document.createElement("span");
-      statsVal.className = "total-val";
-      statsVal.textContent = "Valeur estimée : ~" + totalEstValue.toFixed(2) + " €";
-      statsContainer.appendChild(statsInfo);
-      statsContainer.appendChild(statsVal);
+      loadCollection();
+    }
 
-      if (ownedCards.length === 0) {
-        listContainer.innerHTML = '<p style="color:var(--text-muted); margin-top: 24px;">Votre collection est vide.</p>';
+    async function removeCardCompletely(id) {
+      if (confirm("Supprimer cette carte de la collection ?")) {
+        await db.cards.delete(id);
+        loadCollection();
+      }
+    }
+
+    async function loadCollection() {
+      const listDiv = document.getElementById('collection-list');
+      const statsDiv = document.getElementById('collection-stats');
+      listDiv.innerHTML = '';
+
+      const cards = await db.cards.toArray();
+
+      let totalCards = cards.length;
+      let totalQuantity = 0;
+      let totalPrice = 0;
+
+      if (cards.length === 0) {
+        listDiv.innerHTML = '<p style="color: var(--text-muted); padding: 20px;">Votre collection est vide pour le moment.</p>';
+        statsDiv.innerHTML = `<div>Cartes : 0 | Exemplaires : 0</div><div>Valeur estimée : <span class="total-val">0.00 €</span></div>`;
         return;
       }
 
-      listContainer.innerHTML = "";
-      
-      ownedCards.forEach(function(card) {
-        var imgUrl = getCardImageUrl(card);
+      cards.forEach(card => {
+        const cNorm = card.countNormal || 0;
+        const cRev = card.countReverse || 0;
+        const cHolo = card.countHolo || 0;
+        const sum = cNorm + cRev + cHolo;
 
-        var div = document.createElement("div");
-        div.className = "collection-item";
-        
-        var img = document.createElement("img");
-        img.src = imgUrl;
-        img.alt = card.name;
-        img.loading = "lazy";
-        
-        var info = document.createElement("div");
-        info.className = "collection-info";
-        
-        var header = document.createElement("div");
-        header.className = "item-header";
-        
-        var h4 = document.createElement("h4");
-        h4.textContent = card.name;
-        
-        var delBtn = document.createElement("button");
-        delBtn.className = "delete-btn";
-        delBtn.textContent = "Supprimer";
-        delBtn.onclick = function() { deleteCardFromCollection(card.id); };
-        
-        header.appendChild(h4);
-        header.appendChild(delBtn);
-        
-        var idTxt = document.createElement("p");
-        idTxt.className = "id-txt";
-        var priceDisplay = (card.priceEur && card.priceEur > 0) ? (" — Cote : ~" + Number(card.priceEur).toFixed(2) + " €") : " — Cote : non spécifiée";
-        idTxt.textContent = card.id + priceDisplay;
+        totalQuantity += sum;
 
-        info.appendChild(header);
-        info.appendChild(idTxt);
+        const pNorm = (card.prices && card.prices.normal) ? card.prices.normal : 0;
+        const pRev = (card.prices && card.prices.reverse) ? card.prices.reverse : 0;
+        const pHolo = (card.prices && card.prices.holo) ? card.prices.holo : 0;
 
-        var variantConfigs = [
-          { label: "Normal", key: "countNormal" },
-          { label: "Reverse", key: "countReverse" },
-          { label: "Holo", key: "countHolo" }
-        ];
+        const cardTotalValue = (cNorm * pNorm) + (cRev * pRev) + (cHolo * pHolo);
+        totalPrice += cardTotalValue;
 
-        variantConfigs.forEach(function(v) {
-          var qtyRow = document.createElement("div");
-          qtyRow.className = "qty-row";
-          
-          var span = document.createElement("span");
-          span.innerHTML = v.label + " : <strong>" + (card[v.key] || 0) + "</strong>";
-          
-          var controls = document.createElement("div");
-          controls.className = "qty-controls";
-          
-          var btnMinus = document.createElement("button");
-          btnMinus.className = "qty-btn";
-          btnMinus.textContent = "-";
-          btnMinus.onclick = function() { updateCollectionQty(card.id, v.key, -1); };
+        const div = document.createElement('div');
+        div.className = 'collection-item';
+        div.innerHTML = `
+          <img src="${card.image}" alt="${card.name}">
+          <div class="collection-info">
+            <div class="item-header">
+              <h4>${card.name}</h4>
+              <button class="delete-btn" onclick="removeCardCompletely('${card.id}')">✕</button>
+            </div>
+            <p class="id-txt">${card.setCode} (#${card.localId})</p>
 
-          var btnPlus = document.createElement("button");
-          btnPlus.className = "qty-btn";
-          btnPlus.textContent = "+";
-          btnPlus.onclick = function() { updateCollectionQty(card.id, v.key, 1); };
+            <div class="qty-row">
+              <span>Norm : ${cNorm} (${pNorm ? pNorm.toFixed(2) : 0}€)</span>
+              <div class="qty-controls">
+                <button class="qty-btn" onclick="updateQuantity('${card.id}', 'normal', -1)">-</button>
+                <button class="qty-btn" onclick="updateQuantity('${card.id}', 'normal', 1)">+</button>
+              </div>
+            </div>
 
-          controls.appendChild(btnMinus);
-          controls.appendChild(btnPlus);
-          qtyRow.appendChild(span);
-          qtyRow.appendChild(controls);
-          info.appendChild(qtyRow);
-        });
+            <div class="qty-row">
+              <span>Rev : ${cRev} (${pRev ? pRev.toFixed(2) : 0}€)</span>
+              <div class="qty-controls">
+                <button class="qty-btn" onclick="updateQuantity('${card.id}', 'reverse', -1)">-</button>
+                <button class="qty-btn" onclick="updateQuantity('${card.id}', 'reverse', 1)">+</button>
+              </div>
+            </div>
 
-        div.appendChild(img);
-        div.appendChild(info);
-        listContainer.appendChild(div);
+            <div class="qty-row">
+              <span>Holo : ${cHolo} (${pHolo ? pHolo.toFixed(2) : 0}€)</span>
+              <div class="qty-controls">
+                <button class="qty-btn" onclick="updateQuantity('${card.id}', 'holo', -1)">-</button>
+                <button class="qty-btn" onclick="updateQuantity('${card.id}', 'holo', 1)">+</button>
+              </div>
+            </div>
+          </div>
+        `;
+        listDiv.appendChild(div);
       });
+
+      statsDiv.innerHTML = `
+        <div>Cartes uniques : ${totalCards} | Exemplaires : ${totalQuantity}</div>
+        <div>Valeur estimée : <span class="total-val">${totalPrice.toFixed(2)} €</span></div>
+      `;
     }
 
     async function exportCollection() {
-      try {
-        var allCards = await db.cards.toArray();
-        if (allCards.length === 0) {
-          alert("Votre collection est vide !");
-          return;
-        }
-        var jsonStr = JSON.stringify(allCards, null, 2);
-        var blob = new Blob([jsonStr], { type: "application/json" });
-        var url = URL.createObjectURL(blob);
-        var dateStr = new Date().toISOString().slice(0, 10);
-        var a = document.createElement("a");
-        a.href = url;
-        a.download = "tcg_collection_backup_" + dateStr + ".json";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      } catch (err) {
-        alert("Erreur d'exportation : " + err.message);
-      }
+      const cards = await db.cards.toArray();
+      const blob = new Blob([JSON.stringify(cards, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `pokemon_collection_${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
     }
 
-    function importCollection(event) {
-      var file = event.target.files[0];
+    async function importCollection(event) {
+      const file = event.target.files[0];
       if (!file) return;
 
-      var reader = new FileReader();
-      reader.onload = async function(e) {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
         try {
-          var importedData = JSON.parse(e.target.result);
-          if (!Array.isArray(importedData)) throw new Error("Format JSON invalide.");
-
-          if (confirm("Importer cette sauvegarde ?")) {
-            await db.cards.bulkPut(importedData);
-            await syncMissingPrices();
-            await renderCollection();
-            alert("Collection importée ! (" + importedData.length + " références)");
+          const cards = JSON.parse(e.target.result);
+          if (Array.isArray(cards)) {
+            await db.cards.bulkPut(cards);
+            alert("Collection importée avec succès !");
+            loadCollection();
+          } else {
+            alert("Format JSON invalide.");
           }
         } catch (err) {
-          alert("Erreur d'importation : " + err.message);
-        } finally {
-          event.target.value = "";
+          alert("Erreur lors de la lecture du fichier JSON.");
         }
       };
       reader.readAsText(file);
-    }
-
-    async function updateCollectionQty(cardId, variantType, delta) {
-      var card = await db.cards.get(cardId);
-      if (!card) return;
-      card[variantType] = Math.max(0, (card[variantType] || 0) + delta);
-      await db.cards.put(card);
-      await renderCollection();
-    }
-
-    async function deleteCardFromCollection(cardId) {
-      if (confirm("Supprimer cette carte ?")) {
-        await db.cards.delete(cardId);
-        await renderCollection();
-      }
-    }
-
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("sw.js");
     }
   </script>
 </body>
