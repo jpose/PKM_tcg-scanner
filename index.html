@@ -56,8 +56,6 @@
     .collection-info { flex: 1; }
     .collection-info h4 { margin: 0 0 4px 0; font-size: 0.95rem; }
     .collection-info p { margin: 2px 0; font-size: 0.75rem; color: #4b5563; }
-    .qty-controls { display: flex; flex-direction: column; gap: 4px; }
-    .qty-btn { padding: 4px 8px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; background: #e5e7eb; }
   </style>
 </head>
 <body>
@@ -154,7 +152,6 @@
       listContainer.innerHTML = '';
       
       ownedCards.forEach(card => {
-        // Reconstitution de l'URL d'image via l'ID TCGdex
         const setID = card.id.split('-')[0];
         const cardNum = card.id.split('-')[1];
         const imgUrl = `https://assets.tcgdex.net/fr/${setID}/${cardNum}/low.png`;
@@ -173,7 +170,7 @@
       });
     }
 
-    // Logic du Scanner IA
+    // Logique du Scanner IA
     snapBtn.addEventListener('click', async () => {
       snapBtn.disabled = true;
       status.innerText = 'Analyse par l\'IA...';
@@ -195,7 +192,10 @@
         });
 
         const apiData = await apiRes.json();
-        if (apiData.error) throw new Error(apiData.error);
+
+        if (apiData.error) {
+          throw new Error(apiData.error);
+        }
 
         const cardName = apiData.name;
         debugAi.innerText = `IA a détecté : "${cardName}"`;
