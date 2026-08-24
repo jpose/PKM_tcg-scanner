@@ -8,7 +8,6 @@
   <meta name="theme-color" content="#3b82f6">
 
   <script src="https://unpkg.com/dexie@latest/dist/dexie.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 
   <style>
     * { box-sizing: border-box; font-family: system-ui, sans-serif; }
@@ -18,18 +17,6 @@
     
     .camera-box { position: relative; width: 100%; max-width: 400px; margin: 0 auto; background: #000; border-radius: 12px; overflow: hidden; }
     video { width: 100%; display: block; }
-    
-    .target-overlay {
-      position: absolute;
-      top: 8%;
-      left: 5%;
-      width: 90%;
-      height: 18%;
-      border: 2px dashed #ef4444;
-      border-radius: 6px;
-      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4);
-      pointer-events: none;
-    }
 
     button { margin-top: 12px; padding: 12px 16px; font-size: 0.95rem; font-weight: bold; color: white; background: #2563eb; border: none; border-radius: 8px; cursor: pointer; width: 100%; max-width: 400px; }
     button.secondary { background: #6b7280; }
@@ -38,7 +25,7 @@
     button:disabled { background: #9ca3af; }
     
     #status { margin-top: 12px; font-size: 0.9rem; color: #4b5563; font-weight: 500; }
-    #debug-ocr { font-size: 0.75rem; color: #dc2626; margin-top: 4px; font-family: monospace; }
+    #debug-ai { font-size: 0.8rem; color: #2563eb; margin-top: 4px; font-family: monospace; }
     
     #selection-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 400px; margin: 16px auto; }
     .card-choice { background: white; padding: 8px; border-radius: 8px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
@@ -58,19 +45,18 @@
 </head>
 <body>
 
-  <h1>Scanner de cartes TCG</h1>
-  <p class="instructions">Mets le TITRE de la carte bien à plat dans le cadre</p>
+  <h1>Scanner AI TCG</h1>
+  <p class="instructions">Cadrez TOUTE la carte dans l'écran</p>
 
   <div class="camera-box" id="camera-container">
     <video id="video" autoplay playsinline></video>
-    <div class="target-overlay"></div>
   </div>
 
-  <button id="snap-btn">Photographier la carte</button>
+  <button id="snap-btn">Analyser la carte (IA)</button>
   <button id="reset-btn" class="secondary" style="display: none;" onclick="resetScan()">Scanner une autre carte</button>
   
-  <div id="status">Initialisation...</div>
-  <div id="debug-ocr"></div>
+  <div id="status">Prêt !</div>
+  <div id="debug-ai"></div>
 
   <div id="selection-grid" style="display: none;"></div>
   <div id="result" class="card-result" style="display: none;"></div>
@@ -83,97 +69,61 @@
     const snapBtn = document.getElementById('snap-btn');
     const resetBtn = document.getElementById('reset-btn');
     const status = document.getElementById('status');
-    const debugOcr = document.getElementById('debug-ocr');
+    const debugAi = document.getElementById('debug-ai');
     const resultDiv = document.getElementById('result');
     const selectionGrid = document.getElementById('selection-grid');
     const cameraContainer = document.getElementById('camera-container');
 
-    let worker = null;
     let currentCardData = null;
 
-    // Prépare Tesseract en tâche de fond pour accélérer le scan
-    (async () => {
-      try {
-        worker = await Tesseract.createWorker('fra');
-        status.innerText = 'Prêt à scanner !';
-      } catch(e) {
-        status.innerText = 'Erreur initialisation OCR : ' + e.message;
-      }
-    })();
-
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 } } })
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } } })
       .then(stream => { video.srcObject = stream; })
       .catch(err => { status.innerText = 'Erreur caméra : ' + err.message; });
 
     snapBtn.addEventListener('click', async () => {
-      if (!worker) {
-        status.innerText = 'OCR non disponible, réessayez...';
-        return;
-      }
-
       snapBtn.disabled = true;
-      status.innerText = 'Traitement de l\'image...';
-      debugOcr.innerText = '';
+      status.innerText = 'Analyse par l\'IA...';
+      debugAi.innerText = '';
 
-      // Canvas pour découper et traiter la zone du nom
       const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
       const ctx = canvas.getContext('2d');
-      
-      const cropX = video.videoWidth * 0.05;
-      const cropY = video.videoHeight * 0.08;
-      const cropWidth = video.videoWidth * 0.90;
-      const cropHeight = video.videoHeight * 0.18;
+      ctx.drawImage(video, 0, 0);
 
-      canvas.width = cropWidth;
-      canvas.height = cropHeight;
-      ctx.drawImage(video, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
-
-      // Pré-traitement : Augmentation du contraste et Binarisation (Noir & Blanc)
-      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const d = imgData.data;
-      for (let i = 0; i < d.length; i += 4) {
-        // Niveau de gris
-        const v = 0.2126 * d[i] + 0.7152 * d[i+1] + 0.0722 * d[i+2];
-        // Seuil noir/blanc agressif pour détacher le texte du fond
-        const bw = v > 130 ? 255 : 0;
-        d[i] = d[i+1] = d[i+2] = bw;
-      }
-      ctx.putImageData(imgData, 0, 0);
+      const base64Image = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
 
       try {
-        status.innerText = 'Lecture du nom...';
-        const { data: { text } } = await worker.recognize(canvas);
-        
-        // Nettoyage agressif des caractères parasites
-        const rawText = text.replace(/[^a-zA-Zà-ÿÀ-Ÿ\s-]/g, ' ').trim();
-        const words = rawText.split(/\s+/).filter(w => w.length > 2);
-        const cleanedName = words.slice(0, 3).join(' ');
+        // Envoi à la fonction serverless Vercel
+        const apiRes = await fetch('/api/scan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: base64Image })
+        });
 
-        debugOcr.innerText = `Lu par l'OCR : "${cleanedName}"`;
+        const apiData = await apiRes.json();
 
-        if (!cleanedName || cleanedName.length < 2) {
-          status.innerText = 'Texte non reconnu. Rapprochez la carte et évitez les reflets.';
+        if (apiData.error) {
+          throw new Error(apiData.error);
+        }
+
+        const cardName = apiData.name;
+        debugAi.innerText = `IA a détecté : "${cardName}"`;
+
+        if (!cardName) {
+          status.innerText = 'Carte non reconnue. Réessayez.';
           snapBtn.disabled = false;
           return;
         }
 
-        status.innerText = `Recherche de "${cleanedName}"...`;
+        status.innerText = `Recherche de "${cardName}" sur TCGdex...`;
 
-        // Test 1 : Recherche avec le texte nettoyé
-        let res = await fetch(`https://api.tcgdex.net/v2/fr/cards?name=${encodeURIComponent(cleanedName)}`);
-        let cards = await res.json();
-
-        // Test 2 : Si échec, tentative sur le premier mot significatif (ex: "Dracaufeu" si l'OCR a manqué la suite)
-        if ((!cards || cards.length === 0) && words.length > 0) {
-          status.innerText = `Recherche secondaire sur "${words[0]}"...`;
-          res = await fetch(`https://api.tcgdex.net/v2/fr/cards?name=${encodeURIComponent(words[0])}`);
-          cards = await res.json();
-        }
-
+        const res = await fetch(`https://api.tcgdex.net/v2/fr/cards?name=${encodeURIComponent(cardName)}`);
+        const cards = await res.json();
         const validCards = Array.isArray(cards) ? cards.filter(c => c.image) : [];
 
         if (!validCards || validCards.length === 0) {
-          status.innerText = `Aucune carte trouvée pour "${cleanedName}".`;
+          status.innerText = `Aucune carte trouvée pour "${cardName}".`;
           snapBtn.disabled = false;
           return;
         }
@@ -191,7 +141,7 @@
     });
 
     function showEditionSelection(cards) {
-      status.innerText = `${cards.length} cartes trouvées. Sélectionne la bonne :`;
+      status.innerText = `${cards.length} cartes trouvées. Sélectionne la tienne :`;
       cameraContainer.style.display = 'none';
       snapBtn.style.display = 'none';
       resetBtn.style.display = 'block';
@@ -269,8 +219,8 @@
       cameraContainer.style.display = 'block';
       snapBtn.style.display = 'block';
       snapBtn.disabled = false;
-      debugOcr.innerText = '';
-      status.innerText = 'Prêt à scanner !';
+      debugAi.innerText = '';
+      status.innerText = 'Prêt !';
     }
 
     if ('serviceWorker' in navigator) {
