@@ -126,7 +126,7 @@
     button:disabled { opacity: 0.5; cursor: not-allowed; }
 
     #status { margin-top: 12px; font-size: 0.9rem; color: #cbd5e1; font-weight: 500; }
-    #debug-ai { font-size: 0.8rem; color: #818cf8; margin-top: 4px; font-family: monospace; word-break: break-all; }
+    #debug-ai { font-size: 0.8rem; color: #818cf8; margin-top: 4px; font-family: monospace; }
 
     #selection-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px auto; }
 
@@ -243,9 +243,6 @@
       font-size: 0.75rem;
       color: var(--text-muted);
       border-top: 1px dashed var(--border-color);
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
     }
   </style>
 </head>
@@ -300,25 +297,10 @@
   </div>
 
   <footer>
-    <div>Propulsé par TCGdex API & DexieDB</div>
-    <div id="footer-timestamp"></div>
+    Propulsé par TCGdex API & DexieDB
   </footer>
 
   <script>
-    // Horodatage dynamique du bas de page
-    function updateFooterTimestamp() {
-      const now = new Date();
-      const formattedDate = now.toLocaleDateString('fr-FR', {
-        day: '2-digit', month: '2-digit', year: 'numeric'
-      });
-      const formattedTime = now.toLocaleTimeString('fr-FR', {
-        hour: '2-digit', minute: '2-digit', second: '2-digit'
-      });
-      document.getElementById('footer-timestamp').innerText = `Dernière mise à jour : ${formattedDate} à ${formattedTime}`;
-    }
-    updateFooterTimestamp();
-    setInterval(updateFooterTimestamp, 1000);
-
     // Initialisation BDD Dexie
     const db = new Dexie("PokemonCollectionDB");
     db.version(2).stores({
@@ -372,10 +354,7 @@
       try {
         const aiResponse = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'anthropic-dangerous-direct-browser-access': 'true'
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             model: "claude-3-5-sonnet-20241022",
             max_tokens: 150,
@@ -383,46 +362,33 @@
               role: "user",
               content: [
                 { type: "image", source: { type: "base64", media_type: "image/jpeg", data: base64Image } },
-                { type: "text", text: "Identifie cette carte Pokémon. Renvoie UNIQUEMENT un objet JSON valide avec les clés: name (nom anglais ou international), localId (numéro de la carte dans le set ex: '025' ou '12'), setCode (code du set si lisible sinon null). Exemple: {\"name\": \"Pikachu\", \"localId\": \"025\", \"setCode\": \"151\"}" }
+                { type: "text", text: "Identifie cette carte Pokémon. Renvoie UNIQUEMENT un objet JSON valide avec les clés: name (nom anglais/international), localId (numéro de la carte dans le set ex: '025' ou '12'), setCode (code de l'extension si lisible sinon null). Exemple: {\"name\": \"Pikachu\", \"localId\": \"025\", \"setCode\": \"151\"}" }
               ]
             }]
           })
         });
 
-        if (!aiResponse.ok) {
-          throw new Error(`Erreur HTTP: ${aiResponse.status}`);
-        }
-
         const aiData = await aiResponse.json();
         const responseText = aiData.content[0].text;
-        debugDiv.innerText = "IA : " + responseText;
+        debugDiv.innerText = "IA: " + responseText;
 
-        const match = responseText.match(/\{[\s\S]*\}/);
-        if (!match) throw new Error("Format de réponse IA invalide");
-
-        const parsed = JSON.parse(match[0]);
+        const parsed = JSON.parse(responseText.match(/\{[\s\S]*\}/)[0]);
         await searchCardInTCGdex(parsed.name, parsed.localId);
 
       } catch (err) {
-        statusDiv.innerText = "Erreur d'analyse IA : " + err.message;
+        statusDiv.innerText = "Erreur d'analyse IA.";
         console.error(err);
         snapBtn.disabled = false;
       }
     });
 
     async function searchCardInTCGdex(name, localId) {
-      statusDiv.innerText = `Recherche TCGdex pour "${name}"...`;
+      statusDiv.innerText = `Recherche dans TCGdex pour "${name}"...`;
       try {
         const res = await fetch(`https://api.tcgdex.net/v2/fr/cards?name=${encodeURIComponent(name)}`);
         const cards = await res.json();
 
-        if (!Array.isArray(cards) || cards.length === 0) {
-          statusDiv.innerText = "Aucune carte trouvée sous ce nom.";
-          snapBtn.disabled = false;
-          return;
-        }
-
-        let matches = cards.filter(c => c.localId === localId || (c.id && c.id.endsWith(`-${localId}`)));
+        let matches = cards.filter(c => c.localId === localId || c.id.endsWith(`-${localId}`));
 
         if (matches.length === 0) {
           matches = cards.slice(0, 4);
@@ -433,7 +399,7 @@
         } else if (matches.length > 1) {
           displaySelectionGrid(matches);
         } else {
-          statusDiv.innerText = "Aucune carte correspondante trouvée.";
+          statusDiv.innerText = "Aucune carte trouvée dans la base de données.";
           snapBtn.disabled = false;
         }
       } catch (err) {
@@ -461,14 +427,17 @@
       });
     }
 
+    // Extraction sécurisée des cotations par déclinaison
     function extractPrices(data) {
-      const prices = { normal: 0, reverse: 0, holo: 0 };
+      const prices = { normal: 0, reverse: 0, holo: 0, avgGlobal: 0 };
 
+      // Si Cardmarket est dispo dans TCGdex
       if (data.cardmarket && data.cardmarket.prices) {
         const p = data.cardmarket.prices;
         prices.normal = p.averageSellPrice || p.avg || 0;
         prices.reverse = p.reverseHoloAvg || p["avg-holo"] || 0;
         prices.holo = p.holoAvg || p["avg-holo"] || prices.normal;
+        prices.avgGlobal = p.trendPrice || prices.normal;
       } else if (data.tcgplayer && data.tcgplayer.prices) {
         const p = data.tcgplayer.prices;
         if (p.normal) prices.normal = p.normal.market || p.normal.mid || 0;
@@ -494,7 +463,7 @@
           name: data.name,
           localId: data.localId,
           setCode: data.set ? data.set.name : 'Inconnu',
-          image: `${data.image}/high.png`,
+          image: `${data.image}/high.jpg`,
           prices: prices
         };
 
@@ -502,7 +471,7 @@
         showCardResult(currentCardData, existing);
 
       } catch (err) {
-        statusDiv.innerText = "Erreur de chargement des détails.";
+        statusDiv.innerText = "Erreur lors du chargement des détails.";
         snapBtn.disabled = false;
       }
     }
@@ -517,13 +486,13 @@
       const cReverse = existing ? (existing.countReverse || 0) : 0;
       const cHolo = existing ? (existing.countHolo || 0) : 0;
 
-      const totalOwned = cNormal + cReverse + cHolo;
-      const badgeHtml = totalOwned > 0 
-        ? `<span class="badge badge-owned">Possédée (${totalOwned})</span>`
+      const isOwned = (cNormal + cReverse + cHolo) > 0;
+      const badgeHtml = isOwned 
+        ? `<span class="badge badge-owned">Possédée (${cNormal + cReverse + cHolo})</span>`
         : `<span class="badge badge-new">Nouvelle carte</span>`;
 
       resultDiv.innerHTML = `
-        <img src="${card.image}" onerror="this.src='${card.image.replace('/high.png','/low.png')}'" alt="${card.name}">
+        <img src="${card.image}" alt="${card.name}">
         <h3>${card.name}</h3>
         <p style="font-size:0.8rem; color:var(--text-muted); margin: -4px 0 8px;">Ext: ${card.setCode} (#${card.localId})</p>
         ${badgeHtml}
@@ -647,7 +616,7 @@
         const div = document.createElement('div');
         div.className = 'collection-item';
         div.innerHTML = `
-          <img src="${card.image}" onerror="this.src='${card.image.replace('/high.png','/low.png')}'" alt="${card.name}">
+          <img src="${card.image}" alt="${card.name}">
           <div class="collection-info">
             <div class="item-header">
               <h4>${card.name}</h4>
@@ -656,7 +625,7 @@
             <p class="id-txt">${card.setCode} (#${card.localId})</p>
 
             <div class="qty-row">
-              <span>Norm : ${cNorm} (${pNorm ? pNorm.toFixed(2) : '0.00'}€)</span>
+              <span>Norm : ${cNorm} (${pNorm ? pNorm.toFixed(2) : 0}€)</span>
               <div class="qty-controls">
                 <button class="qty-btn" onclick="updateQuantity('${card.id}', 'normal', -1)">-</button>
                 <button class="qty-btn" onclick="updateQuantity('${card.id}', 'normal', 1)">+</button>
@@ -664,7 +633,7 @@
             </div>
 
             <div class="qty-row">
-              <span>Rev : ${cRev} (${pRev ? pRev.toFixed(2) : '0.00'}€)</span>
+              <span>Rev : ${cRev} (${pRev ? pRev.toFixed(2) : 0}€)</span>
               <div class="qty-controls">
                 <button class="qty-btn" onclick="updateQuantity('${card.id}', 'reverse', -1)">-</button>
                 <button class="qty-btn" onclick="updateQuantity('${card.id}', 'reverse', 1)">+</button>
@@ -672,7 +641,7 @@
             </div>
 
             <div class="qty-row">
-              <span>Holo : ${cHolo} (${pHolo ? pHolo.toFixed(2) : '0.00'}€)</span>
+              <span>Holo : ${cHolo} (${pHolo ? pHolo.toFixed(2) : 0}€)</span>
               <div class="qty-controls">
                 <button class="qty-btn" onclick="updateQuantity('${card.id}', 'holo', -1)">-</button>
                 <button class="qty-btn" onclick="updateQuantity('${card.id}', 'holo', 1)">+</button>
