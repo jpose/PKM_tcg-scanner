@@ -13,7 +13,6 @@
     * { box-sizing: border-box; font-family: system-ui, sans-serif; }
     body { margin: 0; padding: 16px; background: #f3f4f6; color: #1f2937; text-align: center; }
     
-    /* Navigation par onglets */
     .tabs { display: flex; gap: 8px; max-width: 400px; margin: 0 auto 16px; }
     .tab-btn { flex: 1; padding: 10px; background: #e5e7eb; color: #4b5563; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; }
     .tab-btn.active { background: #2563eb; color: white; }
@@ -49,18 +48,24 @@
     .btn-group { display: flex; gap: 8px; margin-top: 12px; }
     .btn-group button { margin-top: 0; font-size: 0.8rem; padding: 10px 6px; }
 
-    /* Styles de la Collection */
+    /* UI Collection */
     .collection-stats { background: white; padding: 12px; border-radius: 8px; font-weight: bold; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-    .collection-item { background: white; border-radius: 10px; padding: 12px; margin-bottom: 12px; display: flex; gap: 12px; align-items: center; text-align: left; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-    .collection-item img { width: 70px; height: 98px; object-fit: cover; border-radius: 6px; }
+    .collection-item { background: white; border-radius: 10px; padding: 12px; margin-bottom: 12px; display: flex; gap: 12px; align-items: flex-start; text-align: left; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    .collection-item img { width: 75px; height: 105px; object-fit: contain; border-radius: 6px; background: #f3f4f6; }
     .collection-info { flex: 1; }
-    .collection-info h4 { margin: 0 0 4px 0; font-size: 0.95rem; }
-    .collection-info p { margin: 2px 0; font-size: 0.75rem; color: #4b5563; }
+    .collection-info h4 { margin: 0 0 2px 0; font-size: 0.95rem; }
+    .collection-info p.id-txt { margin: 0 0 8px 0; font-size: 0.75rem; color: #6b7280; }
+    
+    /* Boutons de modification dans la collection */
+    .qty-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; font-size: 0.8rem; }
+    .qty-controls { display: flex; gap: 4px; align-items: center; }
+    .qty-btn { width: 22px; height: 22px; padding: 0; border: none; background: #e5e7eb; color: #1f2937; border-radius: 4px; font-weight: bold; cursor: pointer; }
+    .qty-btn:active { background: #d1d5db; }
+    .delete-btn { width: 100%; margin-top: 8px; padding: 6px; background: #fee2e2; color: #dc2626; border: none; border-radius: 6px; font-size: 0.75rem; font-weight: bold; cursor: pointer; }
   </style>
 </head>
 <body>
 
-  <!-- Menu Onglets -->
   <div class="tabs">
     <button class="tab-btn active" id="tab-scan-btn" onclick="switchTab('scan')">Scanner</button>
     <button class="tab-btn" id="tab-collection-btn" onclick="switchTab('collection')">Ma Collection</button>
@@ -98,7 +103,6 @@
 
   <script>
     const db = new Dexie('TCGCollection');
-    // Version 3 de la BDD pour inclure le champ image
     db.version(3).stores({ cards: 'id, name, image, countNormal, countReverse, countHolo' });
 
     const video = document.getElementById('video');
@@ -116,7 +120,6 @@
       .then(stream => { video.srcObject = stream; })
       .catch(err => { status.innerText = 'Erreur caméra : ' + err.message; });
 
-    // Gestion des Onglets
     async function switchTab(tab) {
       document.getElementById('tab-scan-btn').classList.toggle('active', tab === 'scan');
       document.getElementById('tab-collection-btn').classList.toggle('active', tab === 'collection');
@@ -128,14 +131,22 @@
       }
     }
 
-    // Affichage de la Collection
+    // Génère l'URL d'image sécurisée
+    function getCardImageUrl(card) {
+      if (card.image) {
+        return card.image.endsWith('.png') || card.image.endsWith('.jpg') 
+          ? card.image 
+          : `${card.image}/low.png`;
+      }
+      return 'https://via.placeholder.com/75x105?text=No+Img';
+    }
+
+    // Affichage et gestion de la collection
     async function renderCollection() {
       const listContainer = document.getElementById('collection-list');
       const statsContainer = document.getElementById('collection-stats');
       
       const allCards = await db.cards.toArray();
-      
-      // Filtrer les cartes possédées
       const ownedCards = allCards.filter(c => (c.countNormal || 0) + (c.countReverse || 0) + (c.countHolo || 0) > 0);
 
       let totalCardsCount = 0;
@@ -143,34 +154,78 @@
         totalCardsCount += (c.countNormal || 0) + (c.countReverse || 0) + (c.countHolo || 0);
       });
 
-      statsContainer.innerText = `${ownedCards.length} cartes uniques | ${totalCardsCount} exemplaires au total`;
+      statsContainer.innerText = `${ownedCards.length} cartes uniques | ${totalCardsCount} exemplaires`;
 
       if (ownedCards.length === 0) {
-        listContainer.innerHTML = '<p style="color:#6b7280; margin-top: 24px;">Votre collection est vide pour l\'instant. Scannez vos premières cartes !</p>';
+        listContainer.innerHTML = '<p style="color:#6b7280; margin-top: 24px;">Votre collection est vide.</p>';
         return;
       }
 
       listContainer.innerHTML = '';
       
       ownedCards.forEach(card => {
-        // Utilisation prioritaire de l'image stockée ou fallback
-        const imgUrl = card.image ? `${card.image}/low.png` : 'https://via.placeholder.com/70x98?text=No+Img';
+        const imgUrl = getCardImageUrl(card);
 
         const div = document.createElement('div');
         div.className = 'collection-item';
         div.innerHTML = `
-          <img src="${imgUrl}" alt="${card.name}" loading="lazy" onerror="this.src='https://via.placeholder.com/70x98?text=No+Img'">
+          <img src="${imgUrl}" alt="${card.name}" loading="lazy" onerror="this.src='https://via.placeholder.com/75x105?text=No+Img'">
           <div class="collection-info">
             <h4>${card.name}</h4>
-            <p><strong>ID :</strong> ${card.id}</p>
-            <p><strong>Normale :</strong> x${card.countNormal || 0} | <strong>Reverse :</strong> x${card.countReverse || 0} | <strong>Holo :</strong> x${card.countHolo || 0}</p>
+            <p class="id-txt">${card.id}</p>
+            
+            <div class="qty-row">
+              <span>Normale : <strong>${card.countNormal || 0}</strong></span>
+              <div class="qty-controls">
+                <button class="qty-btn" onclick="updateCollectionQty('${card.id}', 'countNormal', -1)">-</button>
+                <button class="qty-btn" onclick="updateCollectionQty('${card.id}', 'countNormal', 1)">+</button>
+              </div>
+            </div>
+
+            <div class="qty-row">
+              <span>Reverse : <strong>${card.countReverse || 0}</strong></span>
+              <div class="qty-controls">
+                <button class="qty-btn" onclick="updateCollectionQty('${card.id}', 'countReverse', -1)">-</button>
+                <button class="qty-btn" onclick="updateCollectionQty('${card.id}', 'countReverse', 1)">+</button>
+              </div>
+            </div>
+
+            <div class="qty-row">
+              <span>Holo : <strong>${card.countHolo || 0}</strong></span>
+              <div class="qty-controls">
+                <button class="qty-btn" onclick="updateCollectionQty('${card.id}', 'countHolo', -1)">-</button>
+                <button class="qty-btn" onclick="updateCollectionQty('${card.id}', 'countHolo', 1)">+</button>
+              </div>
+            </div>
+
+            <button class="delete-btn" onclick="deleteCardFromCollection('${card.id}')">Supprimer la carte</button>
           </div>
         `;
         listContainer.appendChild(div);
       });
     }
 
-    // Logique du Scanner IA
+    // Modifier les quantités depuis la collection
+    async function updateCollectionQty(cardId, variantType, delta) {
+      const card = await db.cards.get(cardId);
+      if (!card) return;
+
+      const currentVal = card[variantType] || 0;
+      card[variantType] = Math.max(0, currentVal + delta);
+
+      await db.cards.put(card);
+      await renderCollection();
+    }
+
+    // Supprimer une carte de la collection
+    async function deleteCardFromCollection(cardId) {
+      if (confirm("Supprimer cette carte de votre collection ?")) {
+        await db.cards.delete(cardId);
+        await renderCollection();
+      }
+    }
+
+    // Scanner IA
     snapBtn.addEventListener('click', async () => {
       snapBtn.disabled = true;
       status.innerText = 'Analyse par l\'IA...';
@@ -193,9 +248,7 @@
 
         const apiData = await apiRes.json();
 
-        if (apiData.error) {
-          throw new Error(apiData.error);
-        }
+        if (apiData.error) throw new Error(apiData.error);
 
         const cardName = apiData.name;
         debugAi.innerText = `IA a détecté : "${cardName}"`;
@@ -239,10 +292,11 @@
       selectionGrid.innerHTML = '';
 
       cards.slice(0, 20).forEach(card => {
+        const imgUrl = getCardImageUrl(card);
         const div = document.createElement('div');
         div.className = 'card-choice';
         div.innerHTML = `
-          <img src="${card.image}/low.png" alt="${card.name}" loading="lazy">
+          <img src="${imgUrl}" alt="${card.name}" loading="lazy">
           <p>${card.name}</p>
           <p style="color:#6b7280; font-weight:normal;">${card.id}</p>
         `;
@@ -264,10 +318,12 @@
       const localCard = await db.cards.get(card.id) || { countNormal: 0, countReverse: 0, countHolo: 0 };
       const totalOwned = (localCard.countNormal || 0) + (localCard.countReverse || 0) + (localCard.countHolo || 0);
 
+      const imgUrl = getCardImageUrl(card);
+
       status.innerText = '';
       resultDiv.style.display = 'block';
       resultDiv.innerHTML = `
-        <img src="${card.image}/high.png" alt="${card.name}">
+        <img src="${imgUrl}" alt="${card.name}">
         <h3>${card.name}</h3>
         <p>Édition / ID : ${card.id}</p>
 
@@ -293,16 +349,14 @@
       if (!currentCardData) return;
       const id = currentCardData.id;
       const name = currentCardData.name;
-      const image = currentCardData.image; // Récupère l'URL de l'image de la carte
+      const image = currentCardData.image;
 
       const localCard = await db.cards.get(id) || { id: id, name: name, image: image, countNormal: 0, countReverse: 0, countHolo: 0 };
       
-      // Mise à jour de l'image au cas où elle n'était pas enregistrée
       localCard.image = image;
       localCard[variantType] = (localCard[variantType] || 0) + 1;
       
       await db.cards.put(localCard);
-
       checkAndDisplayCard(currentCardData);
     }
 
