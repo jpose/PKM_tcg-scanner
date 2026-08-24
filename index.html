@@ -154,20 +154,6 @@
 
     .card-result img { max-width: 170px; border-radius: 10px; box-shadow: 0 6px 12px rgba(0,0,0,0.4); }
 
-    .price-box {
-      margin: 12px 0;
-      background: rgba(16, 185, 129, 0.1);
-      border: 1px solid rgba(16, 185, 129, 0.3);
-      padding: 10px;
-      border-radius: 8px;
-      font-size: 0.85rem;
-      color: #34d399;
-      font-weight: 600;
-      line-height: 1.5;
-      text-align: left;
-      white-space: pre-line;
-    }
-
     .badge {
       display: inline-block;
       padding: 6px 14px;
@@ -351,6 +337,9 @@
       if (card && card.image) {
         if (card.image.endsWith(".png") || card.image.endsWith(".jpg")) return card.image;
         return card.image + "/low.png";
+      }
+      if (card && card.id) {
+        return "https://assets.tcgdex.net/fr/" + card.id.split('-')[0] + "/" + card.id.split('-')[1] + "/low.png";
       }
       return "https://via.placeholder.com/150x210/1e293b/94a3b8?text=Image+Indisponible";
     }
@@ -571,18 +560,17 @@
         status.innerText = 'Recherche TCGdex pour "' + cardName + '"...';
         var res = await fetch("https://api.tcgdex.net/v2/fr/cards?name=" + encodeURIComponent(cardName));
         var cards = await res.json();
-        var validCards = Array.isArray(cards) ? cards.filter(function(c) { return Boolean(c.image); }) : [];
 
-        if (validCards.length === 0) {
+        if (!Array.isArray(cards) || cards.length === 0) {
           status.innerText = "Aucune carte trouvée.";
           snapBtn.disabled = false;
           return;
         }
 
-        if (validCards.length === 1) {
-          await fetchFullCardDetailsAndDisplay(validCards[0].id);
+        if (cards.length === 1) {
+          await fetchFullCardDetailsAndDisplay(cards[0].id);
         } else {
-          showEditionSelection(validCards);
+          showEditionSelection(cards);
         }
 
       } catch (err) {
@@ -716,11 +704,11 @@
       var id = currentCardData.id;
 
       var localCard = await db.cards.get(id) || { 
-        id: id, name: currentCardData.name, image: currentCardData.image, 
+        id: id, name: currentCardData.name, image: getCardImageUrl(currentCardData), 
         countNormal: 0, countReverse: 0, countHolo: 0 
       };
       
-      localCard.image = currentCardData.image;
+      localCard.image = getCardImageUrl(currentCardData);
       localCard[variantType] = (localCard[variantType] || 0) + 1;
       
       await db.cards.put(localCard);
