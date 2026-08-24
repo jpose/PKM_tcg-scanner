@@ -39,7 +39,7 @@
       display: flex;
       gap: 6px;
       max-width: 420px;
-      margin: 0 auto 20px;
+      margin: 0 auto 16px;
       background: #1e293b;
       padding: 4px;
       border-radius: 12px;
@@ -63,6 +63,20 @@
       background: var(--primary);
       color: #ffffff;
       box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
+    }
+
+    .logo-container {
+      max-width: 420px;
+      margin: 0 auto 16px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .app-logo {
+      width: 160px;
+      height: auto;
+      border-radius: 12px;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
     }
 
     .views { max-width: 420px; margin: 0 auto; }
@@ -183,7 +197,7 @@
       border-radius: 12px;
       font-weight: 700;
       font-size: 0.9rem;
-      margin-bottom: 16px;
+      margin-bottom: 12px;
       border: 1px solid var(--border-color);
       color: #a5b4fc;
       display: flex;
@@ -192,6 +206,19 @@
     }
 
     .collection-stats span.total-val { color: var(--price-color); font-size: 1.05rem; }
+
+    .backup-actions {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .backup-actions button {
+      margin-top: 0;
+      font-size: 0.8rem;
+      padding: 10px;
+    }
+
     .collection-grid-view { display: flex; flex-direction: column; gap: 12px; }
 
     .collection-item {
@@ -247,6 +274,10 @@
       <button class="tab-btn" id="tab-collection-btn" onclick="switchTab('collection')">Ma Collection</button>
     </div>
 
+    <div class="logo-container">
+      <img src="logo.jpg" alt="TCG Manager Logo" class="app-logo">
+    </div>
+
     <div class="views">
       <div id="view-scan">
         <h1>Scanner AI TCG</h1>
@@ -269,13 +300,20 @@
       <div id="view-collection" style="display: none;">
         <h1>Ma Collection</h1>
         <div class="collection-stats" id="collection-stats">Chargement...</div>
+
+        <div class="backup-actions">
+          <button class="action-btn secondary" onclick="exportCollection()">Exporter JSON</button>
+          <button class="action-btn secondary" onclick="document.getElementById('import-file').click()">Importer JSON</button>
+          <input type="file" id="import-file" accept=".json" style="display: none;" onchange="importCollection(event)">
+        </div>
+
         <div id="collection-list" class="collection-grid-view"></div>
       </div>
     </div>
   </div>
 
   <footer>
-    Version du fichier générée le : <span id="build-timestamp">24/08/2026 13:35:00</span>
+    Version du fichier générée le : <span id="build-timestamp">24/08/2026 13:55:00</span>
   </footer>
 
   <script>
@@ -318,7 +356,6 @@
       return "https://via.placeholder.com/75x105/1e293b/94a3b8?text=No+Img";
     }
 
-    // Récupération multi-variantes (Normal, Reverse, Holo)
     async function getCardPrices(card) {
       var prices = {
         normal: { eur: null, usd: null },
@@ -326,7 +363,6 @@
         holo: { eur: null, usd: null }
       };
 
-      // 1. TCGdex
       if (card && card.pricing) {
         if (card.pricing.cardmarket) {
           var cm = card.pricing.cardmarket;
@@ -346,7 +382,6 @@
         return prices;
       }
 
-      // 2. Fallback Pokémon TCG API
       try {
         var rawNum = card.localId || (card.id ? card.id.split('-').pop() : null);
         var num = rawNum ? parseInt(rawNum, 10) : null;
@@ -501,6 +536,57 @@
         div.appendChild(info);
         listContainer.appendChild(div);
       });
+    }
+
+    async function exportCollection() {
+      try {
+        var allCards = await db.cards.toArray();
+        if (allCards.length === 0) {
+          alert("Votre collection est vide, rien à exporter !");
+          return;
+        }
+
+        var jsonStr = JSON.stringify(allCards, null, 2);
+        var blob = new Blob([jsonStr], { type: "application/json" });
+        var url = URL.createObjectURL(blob);
+
+        var dateStr = new Date().toISOString().slice(0, 10);
+        var a = document.createElement("a");
+        a.href = url;
+        a.download = "tcg_collection_backup_" + dateStr + ".json";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        alert("Erreur lors de l'exportation : " + err.message);
+      }
+    }
+
+    function importCollection(event) {
+      var file = event.target.files[0];
+      if (!file) return;
+
+      var reader = new FileReader();
+      reader.onload = async function(e) {
+        try {
+          var importedData = JSON.parse(e.target.result);
+          if (!Array.isArray(importedData)) {
+            throw new Error("Format JSON invalide.");
+          }
+
+          if (confirm("Importer cette sauvegarde ? Les données associées à ces cartes seront mises à jour.")) {
+            await db.cards.bulkPut(importedData);
+            await renderCollection();
+            alert("Collection importée avec succès ! (" + importedData.length + " références)");
+          }
+        } catch (err) {
+          alert("Erreur lors de l'importation : " + err.message);
+        } finally {
+          event.target.value = "";
+        }
+      };
+      reader.readAsText(file);
     }
 
     async function updateCollectionQty(cardId, variantType, delta) {
