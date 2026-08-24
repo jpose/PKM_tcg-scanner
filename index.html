@@ -126,7 +126,7 @@
     button:disabled { opacity: 0.5; cursor: not-allowed; }
 
     #status { margin-top: 12px; font-size: 0.9rem; color: #cbd5e1; font-weight: 500; }
-    #debug-ai { font-size: 0.8rem; color: #818cf8; margin-top: 4px; font-family: monospace; }
+    #debug-ai { font-size: 0.8rem; color: #f87171; margin-top: 4px; font-family: monospace; word-break: break-all; }
 
     #selection-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px auto; }
 
@@ -338,8 +338,9 @@
       }
     }
 
+    // Capture & Envoi vers l'API Gemini (Vercel)
     snapBtn.addEventListener('click', async () => {
-      statusDiv.innerText = "Capture et analyse en cours...";
+      statusDiv.innerText = "Capture et analyse Gemini en cours...";
       debugDiv.innerText = "";
       snapBtn.disabled = true;
 
@@ -349,34 +350,41 @@
       const ctx = canvas.getContext('2d');
       ctx.drawImage(video, 0, 0);
 
+      // Extraction du Base64 pur (sans l'en-tête data:image/jpeg;base64,)
       const base64Image = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
 
       try {
-        const aiResponse = await fetch('https://api.anthropic.com/v1/messages', {
+        const aiResponse = await fetch('/api/handler', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: "claude-3-5-sonnet-20241022",
-            max_tokens: 150,
-            messages: [{
-              role: "user",
-              content: [
-                { type: "image", source: { type: "base64", media_type: "image/jpeg", data: base64Image } },
-                { type: "text", text: "Identifie cette carte Pokémon. Renvoie UNIQUEMENT un objet JSON valide avec les clés: name (nom anglais/international), localId (numéro de la carte dans le set ex: '025' ou '12'), setCode (code de l'extension si lisible sinon null). Exemple: {\"name\": \"Pikachu\", \"localId\": \"025\", \"setCode\": \"151\"}" }
-              ]
-            }]
-          })
+          body: JSON.stringify({ image: base64Image })
         });
 
         const aiData = await aiResponse.json();
-        const responseText = aiData.content[0].text;
-        debugDiv.innerText = "IA: " + responseText;
 
-        const parsed = JSON.parse(responseText.match(/\{[\s\S]*\}/)[0]);
-        await searchCardInTCGdex(parsed.name, parsed.localId);
+        if (!aiResponse.ok) {
+          const errorMsg = aiData.error || "Erreur serveur";
+          const details = aiData.details || aiData.finishReason || JSON.stringify(aiData);
+          statusDiv.innerText = `Erreur (${aiResponse.status}) : ${errorMsg}`;
+          debugDiv.innerText = typeof details === 'object' ? JSON.stringify(details) : details;
+          snapBtn.disabled = false;
+          return;
+        }
+
+        const cardName = aiData.name;
+
+        if (!cardName) {
+          statusDiv.innerText = "L'IA n'a pas pu lire le nom sur la carte.";
+          snapBtn.disabled = false;
+          return;
+        }
+
+        statusDiv.innerText = `Carte reconnue : "${cardName}"`;
+        await searchCardInTCGdex(cardName, "");
 
       } catch (err) {
-        statusDiv.innerText = "Erreur d'analyse IA.";
+        statusDiv.innerText = "Erreur de réseau ou serveur Vercel inaccessible.";
+        debugDiv.innerText = err.message;
         console.error(err);
         snapBtn.disabled = false;
       }
@@ -388,7 +396,10 @@
         const res = await fetch(`https://api.tcgdex.net/v2/fr/cards?name=${encodeURIComponent(name)}`);
         const cards = await res.json();
 
-        let matches = cards.filter(c => c.localId === localId || c.id.endsWith(`-${localId}`));
+        let matches = cards;
+        if (localId) {
+          matches = cards.filter(c => c.localId === localId || c.id.endsWith(`-${localId}`));
+        }
 
         if (matches.length === 0) {
           matches = cards.slice(0, 4);
@@ -431,7 +442,6 @@
     function extractPrices(data) {
       const prices = { normal: 0, reverse: 0, holo: 0, avgGlobal: 0 };
 
-      // Si Cardmarket est dispo dans TCGdex
       if (data.cardmarket && data.cardmarket.prices) {
         const p = data.cardmarket.prices;
         prices.normal = p.averageSellPrice || p.avg || 0;
