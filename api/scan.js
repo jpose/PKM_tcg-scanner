@@ -41,23 +41,8 @@ export default async function handler(req, res) {
 
     const data = await response.json();
 
-    // 1. Détection spécifique du dépassement de quota / limite
-    if (response.status === 429 || data.error?.status === 'RESOURCE_EXHAUSTED') {
-      return res.status(429).json({
-        limit_exceeded: true,
-        error: 'Quota ou limite de requêtes dépassé (Rate Limit).',
-        details: data.error?.message || 'Trop de requêtes envoyées à Gemini.'
-      });
-    }
-
-    // 2. Erreurs Google standards (400, 403, 500, etc.)
-    if (!response.ok || data.error) {
-      return res.status(response.status || 500).json({
-        limit_exceeded: false,
-        error: data.error?.message || 'Erreur Gemini',
-        status_code: response.status,
-        details: data.error || data
-      });
+    if (data.error) {
+      return res.status(500).json({ error: data.error.message || 'Erreur Gemini' });
     }
 
     const cardName = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
