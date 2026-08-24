@@ -313,7 +313,7 @@
   </div>
 
   <footer>
-    Version du fichier générée le : <span id="build-timestamp">24/08/2026 16:20:00</span>
+    Version du fichier générée le : <span id="build-timestamp">24/08/2026 13:55:00</span>
   </footer>
 
   <script>
@@ -637,34 +637,9 @@
         }
 
         status.innerText = 'Recherche de "' + cardName + '"...';
-        
-        // 1. Recherche directe avec le nom complet (ex: "Dracaufeu ex", "Pikachu VMAX")
         var res = await fetch("https://api.tcgdex.net/v2/fr/cards?name=" + encodeURIComponent(cardName));
         var cards = await res.json();
-
-        // 2. Fallback: Si rien n'est trouvé, tenter la recherche sur la racine du nom (ex: "Dracaufeu")
-        if (!Array.isArray(cards) || cards.length === 0) {
-          var cleanBaseName = cardName.replace(/\b(ex|EX|vmax|VMAX|vstar|VSTAR|v|V|gx|GX|radiant|Radiant)\b/gi, "").trim();
-          if (cleanBaseName && cleanBaseName !== cardName) {
-            res = await fetch("https://api.tcgdex.net/v2/fr/cards?name=" + encodeURIComponent(cleanBaseName));
-            cards = await res.json();
-          }
-        }
-
         var validCards = Array.isArray(cards) ? cards.filter(function(c) { return Boolean(c.image); }) : [];
-
-        // 3. Filtrer préférentiellement les résultats qui contiennent l'extension spécifique (ex: ex, VMAX) si présente
-        var cardSuffixRegex = /\b(ex|EX|vmax|VMAX|vstar|VSTAR|v|V|gx|GX|radiant|Radiant)\b/i;
-        var matchSuffix = cardName.match(cardSuffixRegex);
-        if (matchSuffix && validCards.length > 1) {
-          var suffix = matchSuffix[0].toLowerCase();
-          var filteredBySuffix = validCards.filter(function(c) {
-            return c.name && c.name.toLowerCase().includes(suffix);
-          });
-          if (filteredBySuffix.length > 0) {
-            validCards = filteredBySuffix;
-          }
-        }
 
         if (validCards.length === 0) {
           status.innerText = "Aucune carte trouvée.";
