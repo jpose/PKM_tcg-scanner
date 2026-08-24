@@ -19,13 +19,19 @@ export default async function handler(req, res) {
     }
 
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-    const { image } = body || {};
+    const { image, base64 } = body || {};
 
-    if (!image) {
+    let rawBase64 = base64 || image;
+    if (!rawBase64) {
       return res.status(400).json({ error: 'Aucune image envoyée' });
     }
 
-    // Utilisation stricte de gemini-3.6-flash
+    // Retrait du préfixe "data:image/...;base64," requis pour l'API REST Google
+    if (rawBase64.includes(',')) {
+      rawBase64 = rawBase64.split(',')[1];
+    }
+
+    // Conservation exacte du modèle gemini-3.6-flash
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -33,7 +39,7 @@ export default async function handler(req, res) {
         contents: [{
           parts: [
             { text: "Identifie cette carte Pokémon. Donne uniquement son NOM officiel en français, sans aucun autre texte ni ponctuation." },
-            { inline_data: { mime_type: "image/jpeg", data: image } }
+            { inline_data: { mime_type: "image/jpeg", data: rawBase64 } }
           ]
         }]
       })
