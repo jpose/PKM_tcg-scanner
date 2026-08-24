@@ -31,7 +31,6 @@
       min-height: 100vh;
     }
 
-    /* Navigation Bar / Tabs */
     .tabs {
       display: flex;
       gap: 6px;
@@ -73,12 +72,7 @@
       -webkit-text-fill-color: transparent;
     }
 
-    p.instructions {
-      font-size: 0.85rem;
-      color: var(--text-muted);
-      margin-top: 0;
-      margin-bottom: 16px;
-    }
+    p.instructions { font-size: 0.85rem; color: var(--text-muted); margin-top: 0; margin-bottom: 16px; }
 
     .camera-box {
       position: relative;
@@ -104,7 +98,7 @@
       cursor: pointer;
       width: 100%;
       box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3);
-      transition: transform 0.1s ease, box-shadow 0.2s ease;
+      transition: transform 0.1s ease;
     }
 
     button.action-btn:active { transform: scale(0.98); }
@@ -116,12 +110,7 @@
     #status { margin-top: 12px; font-size: 0.9rem; color: #cbd5e1; font-weight: 500; }
     #debug-ai { font-size: 0.8rem; color: #818cf8; margin-top: 4px; font-family: monospace; }
 
-    #selection-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-      margin: 16px auto;
-    }
+    #selection-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px auto; }
 
     .card-choice {
       background: var(--card-bg);
@@ -129,10 +118,10 @@
       border-radius: 12px;
       cursor: pointer;
       border: 1px solid var(--border-color);
-      transition: transform 0.2s ease, border-color 0.2s ease;
+      transition: transform 0.2s ease;
     }
 
-    .card-choice:hover { transform: translateY(-2px); border-color: var(--primary); }
+    .card-choice:hover { border-color: var(--primary); }
     .card-choice img { width: 100%; border-radius: 8px; }
     .card-choice p { margin: 6px 0 0; font-size: 0.75rem; font-weight: 600; color: var(--text-main); }
 
@@ -151,11 +140,12 @@
       margin: 12px 0;
       background: rgba(16, 185, 129, 0.1);
       border: 1px solid rgba(16, 185, 129, 0.3);
-      padding: 8px 12px;
+      padding: 10px;
       border-radius: 8px;
       font-size: 0.85rem;
       color: #34d399;
       font-weight: 600;
+      line-height: 1.5;
     }
 
     .badge {
@@ -182,7 +172,6 @@
     .btn-group { display: flex; gap: 8px; margin-top: 12px; }
     .btn-group button { margin-top: 0; font-size: 0.8rem; padding: 10px 4px; }
 
-    /* Collection UI */
     .collection-stats {
       background: var(--card-bg);
       padding: 14px;
@@ -197,11 +186,7 @@
       gap: 4px;
     }
 
-    .collection-stats span.total-val {
-      color: var(--price-color);
-      font-size: 1.05rem;
-    }
-
+    .collection-stats span.total-val { color: var(--price-color); font-size: 1.05rem; }
     .collection-grid-view { display: flex; flex-direction: column; gap: 12px; }
 
     .collection-item {
@@ -235,45 +220,16 @@
       margin-bottom: 8px;
     }
 
-    .qty-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 4px;
-      font-size: 0.78rem;
-      color: #cbd5e1;
-    }
-
+    .qty-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; font-size: 0.78rem; color: #cbd5e1; }
     .qty-controls { display: flex; gap: 4px; align-items: center; }
     
     .qty-btn {
-      width: 22px;
-      height: 22px;
-      padding: 0;
-      border: 1px solid var(--border-color);
-      background: #334155;
-      color: white;
-      border-radius: 6px;
-      font-weight: bold;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      width: 22px; height: 22px; padding: 0; border: 1px solid var(--border-color);
+      background: #334155; color: white; border-radius: 6px; font-weight: bold; cursor: pointer;
     }
-    
     .qty-btn:active { background: var(--primary); }
 
-    .delete-btn {
-      background: transparent;
-      color: #f87171;
-      border: none;
-      padding: 4px;
-      font-size: 0.8rem;
-      cursor: pointer;
-      opacity: 0.8;
-      margin-left: auto;
-    }
-
+    .delete-btn { background: transparent; color: #f87171; border: none; padding: 4px; font-size: 0.8rem; cursor: pointer; opacity: 0.8; margin-left: auto; }
     .item-header { display: flex; justify-content: space-between; align-items: flex-start; }
   </style>
 </head>
@@ -285,8 +241,6 @@
   </div>
 
   <div class="views">
-    
-    <!-- VUE 1 : SCANNER -->
     <div id="view-scan">
       <h1>Scanner AI TCG</h1>
       <p class="instructions">Placer la carte au centre du cadre</p>
@@ -295,164 +249,192 @@
         <video id="video" autoplay playsinline></video>
       </div>
 
-      <button id="snap-btn" class="action-btn">⚡ Analyser la carte (IA)</button>
+      <button id="snap-btn" class="action-btn">Analyser la carte</button>
       <button id="reset-btn" class="action-btn secondary" style="display: none;" onclick="resetScan()">Scanner une autre carte</button>
       
-      <div id="status">Prêt !</div>
+      <div id="status">Pret !</div>
       <div id="debug-ai"></div>
 
       <div id="selection-grid" style="display: none;"></div>
       <div id="result" class="card-result" style="display: none;"></div>
     </div>
 
-    <!-- VUE 2 : MA COLLECTION -->
     <div id="view-collection" style="display: none;">
       <h1>Ma Collection</h1>
       <div class="collection-stats" id="collection-stats">Chargement...</div>
       <div id="collection-list" class="collection-grid-view"></div>
     </div>
-
   </div>
 
   <script>
-    const db = new Dexie('TCGCollection');
-    db.version(4).stores({ cards: 'id, name, image, priceEur, priceUsd, countNormal, countReverse, countHolo' });
+    var db = new Dexie("TCGCollection");
+    db.version(4).stores({ cards: "id, name, image, priceEur, priceUsd, countNormal, countReverse, countHolo" });
 
-    const video = document.getElementById('video');
-    const snapBtn = document.getElementById('snap-btn');
-    const resetBtn = document.getElementById('reset-btn');
-    const status = document.getElementById('status');
-    const debugAi = document.getElementById('debug-ai');
-    const resultDiv = document.getElementById('result');
-    const selectionGrid = document.getElementById('selection-grid');
-    const cameraContainer = document.getElementById('camera-container');
+    var video = document.getElementById("video");
+    var snapBtn = document.getElementById("snap-btn");
+    var resetBtn = document.getElementById("reset-btn");
+    var status = document.getElementById("status");
+    var debugAi = document.getElementById("debug-ai");
+    var resultDiv = document.getElementById("result");
+    var selectionGrid = document.getElementById("selection-grid");
+    var cameraContainer = document.getElementById("camera-container");
 
-    let currentCardData = null;
+    var currentCardData = null;
 
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } } })
-      .then(stream => { video.srcObject = stream; })
-      .catch(err => { status.innerText = 'Erreur caméra : ' + err.message; });
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1280 } } })
+      .then(function(stream) { video.srcObject = stream; })
+      .catch(function(err) { status.innerText = "Erreur camera : " + err.message; });
 
     async function switchTab(tab) {
-      document.getElementById('tab-scan-btn').classList.toggle('active', tab === 'scan');
-      document.getElementById('tab-collection-btn').classList.toggle('active', tab === 'collection');
-      document.getElementById('view-scan').style.display = tab === 'scan' ? 'block' : 'none';
-      document.getElementById('view-collection').style.display = tab === 'collection' ? 'block' : 'none';
+      document.getElementById("tab-scan-btn").classList.toggle("active", tab === "scan");
+      document.getElementById("tab-collection-btn").classList.toggle("active", tab === "collection");
+      document.getElementById("view-scan").style.display = (tab === "scan") ? "block" : "none";
+      document.getElementById("view-collection").style.display = (tab === "collection") ? "block" : "none";
 
-      if (tab === 'collection') {
+      if (tab === "collection") {
         await renderCollection();
       }
     }
 
     function getCardImageUrl(card) {
-      if (card.image) {
-        return card.image.endsWith('.png') || card.image.endsWith('.jpg') 
-          ? card.image 
-          : `${card.image}/low.png`;
+      if (card && card.image) {
+        if (card.image.endsWith(".png") || card.image.endsWith(".jpg")) {
+          return card.image;
+        }
+        return card.image + "/low.png";
       }
-      return 'https://via.placeholder.com/75x105/1e293b/94a3b8?text=No+Img';
+      return "https://via.placeholder.com/75x105/1e293b/94a3b8?text=No+Img";
     }
 
-    // Extrait les cotes de la carte (Cardmarket & TCGPlayer)
     function extractPrices(card) {
-      let eur = null;
-      let usd = null;
+      var eur = null;
+      var usd = null;
 
-      if (card.pricing) {
-        if (card.pricing.cardmarket) {
-          eur = card.pricing.cardmarket.trend || card.pricing.cardmarket.avg || card.pricing.cardmarket.low || null;
-        }
-        if (card.pricing.tcgplayer) {
-          const normal = card.pricing.tcgplayer.normal || card.pricing.tcgplayer.holofoil || {};
-          usd = normal.midPrice || normal.marketPrice || normal.lowPrice || null;
-        }
+      if (card && card.cardmarket && card.cardmarket.prices) {
+        eur = card.cardmarket.prices.trendPrice || card.cardmarket.prices.averageSellPrice || null;
+      }
+      if (card && card.tcgplayer && card.tcgplayer.prices) {
+        var prices = card.tcgplayer.prices;
+        var variant = prices.normal || prices.holofoil || prices.reverseHolofoil || {};
+        usd = variant.marketPrice || variant.midPrice || null;
       }
 
-      return { eur, usd };
+      return { eur: eur, usd: usd };
     }
 
     async function renderCollection() {
-      const listContainer = document.getElementById('collection-list');
-      const statsContainer = document.getElementById('collection-stats');
+      var listContainer = document.getElementById("collection-list");
+      var statsContainer = document.getElementById("collection-stats");
       
-      const allCards = await db.cards.toArray();
-      const ownedCards = allCards.filter(c => (c.countNormal || 0) + (c.countReverse || 0) + (c.countHolo || 0) > 0);
-
-      let totalCardsCount = 0;
-      let totalEstValue = 0;
-
-      ownedCards.forEach(c => {
-        const qty = (c.countNormal || 0) + (c.countReverse || 0) + (c.countHolo || 0);
-        totalCardsCount += qty;
-        if (c.priceEur) {
-          totalEstValue += c.priceEur * qty;
-        }
+      var allCards = await db.cards.toArray();
+      var ownedCards = allCards.filter(function(c) {
+        return ((c.countNormal || 0) + (c.countReverse || 0) + (c.countHolo || 0)) > 0;
       });
 
-      statsContainer.innerHTML = `
-        <div>📦 ${ownedCards.length} uniques | 🎴 ${totalCardsCount} exemplaires</div>
-        <span class="total-val">💰 Valeur estimée : ~${totalEstValue.toFixed(2)} €</span>
-      `;
+      var totalCardsCount = 0;
+      var totalEstValue = 0;
+
+      ownedCards.forEach(function(c) {
+        var qty = (c.countNormal || 0) + (c.countReverse || 0) + (c.countHolo || 0);
+        totalCardsCount += qty;
+        if (c.priceEur) totalEstValue += c.priceEur * qty;
+      });
+
+      statsContainer.innerHTML = "";
+      var statsInfo = document.createElement("div");
+      statsInfo.textContent = ownedCards.length + " uniques | " + totalCardsCount + " exemplaires";
+      var statsVal = document.createElement("span");
+      statsVal.className = "total-val";
+      statsVal.textContent = "Valeur estimee : ~" + totalEstValue.toFixed(2) + " €";
+      statsContainer.appendChild(statsInfo);
+      statsContainer.appendChild(statsVal);
 
       if (ownedCards.length === 0) {
         listContainer.innerHTML = '<p style="color:var(--text-muted); margin-top: 24px;">Votre collection est vide.</p>';
         return;
       }
 
-      listContainer.innerHTML = '';
+      listContainer.innerHTML = "";
       
-      ownedCards.forEach(card => {
-        const imgUrl = getCardImageUrl(card);
-        const priceTxt = card.priceEur ? `${card.priceEur.toFixed(2)} € (Cardmarket)` : 'Cote indisponible';
+      ownedCards.forEach(function(card) {
+        var imgUrl = getCardImageUrl(card);
+        var priceTxt = card.priceEur ? card.priceEur.toFixed(2) + " € (Cardmarket)" : "Cote indisponible";
 
-        const div = document.createElement('div');
-        div.className = 'collection-item';
-        div.innerHTML = `
-          <img src="${imgUrl}" alt="${card.name}" loading="lazy" onerror="this.src='https://via.placeholder.com/75x105/1e293b/94a3b8?text=No+Img'">
-          <div class="collection-info">
-            <div class="item-header">
-              <h4>${card.name}</h4>
-              <button class="delete-btn" title="Supprimer" onclick="deleteCardFromCollection('${card.id}')">🗑️</button>
-            </div>
-            <p class="id-txt">${card.id}</p>
-            <div class="card-price-tag">🏷️ Cote : ${priceTxt}</div>
-            
-            <div class="qty-row">
-              <span>Normale : <strong>${card.countNormal || 0}</strong></span>
-              <div class="qty-controls">
-                <button class="qty-btn" onclick="updateCollectionQty('${card.id}', 'countNormal', -1)">-</button>
-                <button class="qty-btn" onclick="updateCollectionQty('${card.id}', 'countNormal', 1)">+</button>
-              </div>
-            </div>
+        var div = document.createElement("div");
+        div.className = "collection-item";
+        
+        var img = document.createElement("img");
+        img.src = imgUrl;
+        img.alt = card.name;
+        img.loading = "lazy";
+        
+        var info = document.createElement("div");
+        info.className = "collection-info";
+        
+        var header = document.createElement("div");
+        header.className = "item-header";
+        
+        var h4 = document.createElement("h4");
+        h4.textContent = card.name;
+        
+        var delBtn = document.createElement("button");
+        delBtn.className = "delete-btn";
+        delBtn.textContent = "Supprimer";
+        delBtn.onclick = function() { deleteCardFromCollection(card.id); };
+        
+        header.appendChild(h4);
+        header.appendChild(delBtn);
+        
+        var idTxt = document.createElement("p");
+        idTxt.className = "id-txt";
+        idTxt.textContent = card.id;
 
-            <div class="qty-row">
-              <span>Reverse : <strong>${card.countReverse || 0}</strong></span>
-              <div class="qty-controls">
-                <button class="qty-btn" onclick="updateCollectionQty('${card.id}', 'countReverse', -1)">-</button>
-                <button class="qty-btn" onclick="updateCollectionQty('${card.id}', 'countReverse', 1)">+</button>
-              </div>
-            </div>
+        var priceTag = document.createElement("div");
+        priceTag.className = "card-price-tag";
+        priceTag.textContent = "Cote : " + priceTxt;
 
-            <div class="qty-row">
-              <span>Holo : <strong>${card.countHolo || 0}</strong></span>
-              <div class="qty-controls">
-                <button class="qty-btn" onclick="updateCollectionQty('${card.id}', 'countHolo', -1)">-</button>
-                <button class="qty-btn" onclick="updateCollectionQty('${card.id}', 'countHolo', 1)">+</button>
-              </div>
-            </div>
-          </div>
-        `;
+        info.appendChild(header);
+        info.appendChild(idTxt);
+        info.appendChild(priceTag);
+
+        ["Normal", "Reverse", "Holo"].forEach(function(variant) {
+          var key = "count" + variant;
+          var qtyRow = document.createElement("div");
+          qtyRow.className = "qty-row";
+          
+          var span = document.createElement("span");
+          span.innerHTML = variant + " : <strong>" + (card[key] || 0) + "</strong>";
+          
+          var controls = document.createElement("div");
+          controls.className = "qty-controls";
+          
+          var btnMinus = document.createElement("button");
+          btnMinus.className = "qty-btn";
+          btnMinus.textContent = "-";
+          btnMinus.onclick = function() { updateCollectionQty(card.id, key, -1); };
+
+          var btnPlus = document.createElement("button");
+          btnPlus.className = "qty-btn";
+          btnPlus.textContent = "+";
+          btnPlus.onclick = function() { updateCollectionQty(card.id, key, 1); };
+
+          controls.appendChild(btnMinus);
+          controls.appendChild(btnPlus);
+          qtyRow.appendChild(span);
+          qtyRow.appendChild(controls);
+          info.appendChild(qtyRow);
+        });
+
+        div.appendChild(img);
+        div.appendChild(info);
         listContainer.appendChild(div);
       });
     }
 
     async function updateCollectionQty(cardId, variantType, delta) {
-      const card = await db.cards.get(cardId);
+      var card = await db.cards.get(cardId);
       if (!card) return;
-
-      const currentVal = card[variantType] || 0;
-      card[variantType] = Math.max(0, currentVal + delta);
-
+      card[variantType] = Math.max(0, (card[variantType] || 0) + delta);
       await db.cards.put(card);
       await renderCollection();
     }
@@ -464,46 +446,45 @@
       }
     }
 
-    snapBtn.addEventListener('click', async () => {
+    snapBtn.addEventListener("click", async function() {
       snapBtn.disabled = true;
-      status.innerText = '⚡ Analyse par l\'IA...';
-      debugAi.innerText = '';
+      status.innerText = "Analyse par l'IA...";
+      debugAi.innerText = "";
 
-      const canvas = document.createElement('canvas');
+      var canvas = document.createElement("canvas");
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
-      const ctx = canvas.getContext('2d');
+      var ctx = canvas.getContext("2d");
       ctx.drawImage(video, 0, 0);
 
-      const base64Image = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+      var base64Image = canvas.toDataURL("image/jpeg", 0.8).split(",")[1];
 
       try {
-        const apiRes = await fetch('/api/scan', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        var apiRes = await fetch("/api/scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ image: base64Image })
         });
 
-        const apiData = await apiRes.json();
+        var apiData = await apiRes.json();
         if (apiData.error) throw new Error(apiData.error);
 
-        const cardName = apiData.name;
-        debugAi.innerText = `IA a trouvé : "${cardName}"`;
+        var cardName = apiData.name;
+        debugAi.innerText = 'IA a trouve : "' + cardName + '"';
 
         if (!cardName) {
-          status.innerText = 'Carte non reconnue. Réessayez.';
+          status.innerText = "Carte non reconnue. Reessayez.";
           snapBtn.disabled = false;
           return;
         }
 
-        status.innerText = `Recherche de "${cardName}"...`;
+        status.innerText = 'Recherche de "' + cardName + '"...';
+        var res = await fetch("https://api.tcgdex.net/v2/fr/cards?name=" + encodeURIComponent(cardName));
+        var cards = await res.json();
+        var validCards = Array.isArray(cards) ? cards.filter(function(c) { return c.image; }) : [];
 
-        const res = await fetch(`https://api.tcgdex.net/v2/fr/cards?name=${encodeURIComponent(cardName)}`);
-        const cards = await res.json();
-        const validCards = Array.isArray(cards) ? cards.filter(c => c.image) : [];
-
-        if (!validCards || validCards.length === 0) {
-          status.innerText = `Aucune carte trouvée pour "${cardName}".`;
+        if (validCards.length === 0) {
+          status.innerText = "Aucune carte trouvee.";
           snapBtn.disabled = false;
           return;
         }
@@ -515,112 +496,172 @@
         }
 
       } catch (err) {
-        status.innerText = 'Erreur : ' + err.message;
+        status.innerText = "Erreur : " + err.message;
         snapBtn.disabled = false;
       }
     });
 
-    // Récupère la carte complète depuis l'API pour avoir les données pricing
     async function fetchFullCardDetailsAndDisplay(cardId) {
-      status.innerText = 'Chargement des détails et cotes...';
+      status.innerText = "Chargement des details...";
       try {
-        const res = await fetch(`https://api.tcgdex.net/v2/fr/cards/${cardId}`);
-        const fullCard = await res.json();
+        var res = await fetch("https://api.tcgdex.net/v2/fr/cards/" + cardId);
+        var fullCard = await res.json();
+
+        try {
+          var priceRes = await fetch("https://api.pokemontcg.io/v2/cards/" + cardId);
+          if (priceRes.ok) {
+            var priceData = await priceRes.json();
+            if (priceData && priceData.data) {
+              fullCard.cardmarket = priceData.data.cardmarket;
+              fullCard.tcgplayer = priceData.data.tcgplayer;
+            }
+          }
+        } catch (e) {
+          console.warn("Impossible de recuperer la cote", e);
+        }
+
         checkAndDisplayCard(fullCard);
       } catch (e) {
-        status.innerText = 'Erreur lors du chargement de la cote.';
+        status.innerText = "Erreur lors du chargement de la carte.";
       }
     }
 
     function showEditionSelection(cards) {
-      status.innerText = `${cards.length} cartes trouvées. Choisis la tienne :`;
-      cameraContainer.style.display = 'none';
-      snapBtn.style.display = 'none';
-      resetBtn.style.display = 'block';
-      selectionGrid.style.display = 'grid';
-      selectionGrid.innerHTML = '';
+      status.innerText = cards.length + " cartes trouvees. Choisis la tienne :";
+      cameraContainer.style.display = "none";
+      snapBtn.style.display = "none";
+      resetBtn.style.display = "block";
+      selectionGrid.style.display = "grid";
+      selectionGrid.innerHTML = "";
 
-      cards.slice(0, 20).forEach(card => {
-        const imgUrl = getCardImageUrl(card);
-        const div = document.createElement('div');
-        div.className = 'card-choice';
-        div.innerHTML = `
-          <img src="${imgUrl}" alt="${card.name}" loading="lazy">
-          <p>${card.name}</p>
-          <p style="color:var(--text-muted); font-weight:normal;">${card.id}</p>
-        `;
-        div.onclick = () => {
-          selectionGrid.style.display = 'none';
+      cards.slice(0, 20).forEach(function(card) {
+        var imgUrl = getCardImageUrl(card);
+        var div = document.createElement("div");
+        div.className = "card-choice";
+        
+        var img = document.createElement("img");
+        img.src = imgUrl;
+        img.alt = card.name;
+
+        var pName = document.createElement("p");
+        pName.textContent = card.name;
+
+        var pId = document.createElement("p");
+        pId.style.color = "var(--text-muted)";
+        pId.style.fontWeight = "normal";
+        pId.textContent = card.id;
+
+        div.appendChild(img);
+        div.appendChild(pName);
+        div.appendChild(pId);
+
+        div.onclick = function() {
+          selectionGrid.style.display = "none";
           fetchFullCardDetailsAndDisplay(card.id);
         };
+
         selectionGrid.appendChild(div);
       });
     }
 
     async function checkAndDisplayCard(card) {
       currentCardData = card;
-      cameraContainer.style.display = 'none';
-      snapBtn.style.display = 'none';
-      selectionGrid.style.display = 'none';
-      resetBtn.style.display = 'block';
+      cameraContainer.style.display = "none";
+      snapBtn.style.display = "none";
+      selectionGrid.style.display = "none";
+      resetBtn.style.display = "block";
       
-      const localCard = await db.cards.get(card.id) || { countNormal: 0, countReverse: 0, countHolo: 0 };
-      const totalOwned = (localCard.countNormal || 0) + (localCard.countReverse || 0) + (localCard.countHolo || 0);
+      var localCard = await db.cards.get(card.id) || { countNormal: 0, countReverse: 0, countHolo: 0 };
+      var totalOwned = (localCard.countNormal || 0) + (localCard.countReverse || 0) + (localCard.countHolo || 0);
 
-      const imgUrl = getCardImageUrl(card);
-      const prices = extractPrices(card);
+      var imgUrl = getCardImageUrl(card);
+      var prices = extractPrices(card);
 
-      let priceHTML = '';
+      resultDiv.innerHTML = "";
+      
+      var img = document.createElement("img");
+      img.src = imgUrl;
+      img.alt = card.name;
+
+      var h3 = document.createElement("h3");
+      h3.style.margin = "10px 0 2px";
+      h3.textContent = card.name;
+
+      var pId = document.createElement("p");
+      pId.style.margin = "0";
+      pId.style.color = "var(--text-muted)";
+      pId.style.fontSize = "0.85rem";
+      pId.textContent = "Edition / ID : " + card.id;
+
+      var priceBox = document.createElement("div");
+      priceBox.className = "price-box";
       if (prices.eur || prices.usd) {
-        priceHTML = `
-          <div class="price-box">
-            📊 Cote estimée : <br>
-            ${prices.eur ? `🇪🇺 Cardmarket : ~${prices.eur.toFixed(2)} €` : ''} 
-            ${prices.eur && prices.usd ? ' | ' : ''}
-            ${prices.usd ? `🇺🇸 TCGPlayer : ~$${prices.usd.toFixed(2)}` : ''}
-          </div>
-        `;
+        var text = "Cote estimee :\n";
+        if (prices.eur) text += "Cardmarket : ~" + prices.eur.toFixed(2) + " €\n";
+        if (prices.usd) text += "TCGPlayer : ~$" + prices.usd.toFixed(2);
+        priceBox.innerText = text;
       } else {
-        priceHTML = `<div class="price-box" style="color:var(--text-muted); border-color:var(--border-color); background:transparent;">📊 Cote non disponible</div>`;
+        priceBox.style.color = "var(--text-muted)";
+        priceBox.style.borderColor = "var(--border-color)";
+        priceBox.style.background = "transparent";
+        priceBox.textContent = "Cote non disponible";
       }
 
-      status.innerText = '';
-      resultDiv.style.display = 'block';
-      resultDiv.innerHTML = `
-        <img src="${imgUrl}" alt="${card.name}">
-        <h3 style="margin: 10px 0 2px;">${card.name}</h3>
-        <p style="margin: 0; color: var(--text-muted); font-size: 0.85rem;">Édition / ID : ${card.id}</p>
+      var badge = document.createElement("div");
+      badge.className = "badge " + (totalOwned > 0 ? "badge-owned" : "badge-new");
+      badge.textContent = totalOwned > 0 ? ("En possession (Total : x" + totalOwned + ")") : "Nouvelle carte !";
 
-        ${priceHTML}
+      var variantBox = document.createElement("div");
+      variantBox.className = "variant-box";
+      variantBox.innerHTML = '<p style="margin:4px 0;">Normal : x' + (localCard.countNormal || 0) + '</p>' +
+                             '<p style="margin:4px 0;">Reverse : x' + (localCard.countReverse || 0) + '</p>' +
+                             '<p style="margin:4px 0;">Holo : x' + (localCard.countHolo || 0) + '</p>';
 
-        <div class="badge ${totalOwned > 0 ? 'badge-owned' : 'badge-new'}">
-          ${totalOwned > 0 ? `En possession (Total : x${totalOwned})` : '✨ Nouvelle carte !'}
-        </div>
+      var btnGroup = document.createElement("div");
+      btnGroup.className = "btn-group";
 
-        <div class="variant-box">
-          <p style="margin: 4px 0;">⚪ <strong>Normal :</strong> x${localCard.countNormal || 0}</p>
-          <p style="margin: 4px 0;">🟣 <strong>Reverse :</strong> x${localCard.countReverse || 0}</p>
-          <p style="margin: 4px 0;">🟡 <strong>Holo :</strong> x${localCard.countHolo || 0}</p>
-        </div>
+      var btnNormal = document.createElement("button");
+      btnNormal.className = "action-btn";
+      btnNormal.textContent = "+ Normal";
+      btnNormal.onclick = function() { addVariant("countNormal"); };
 
-        <div class="btn-group">
-          <button onclick="addVariant('countNormal')" class="action-btn">+ Normal</button>
-          <button onclick="addVariant('countReverse')" class="action-btn btn-reverse">+ Reverse</button>
-          <button onclick="addVariant('countHolo')" class="action-btn btn-holo">+ Holo</button>
-        </div>
-      `;
+      var btnReverse = document.createElement("button");
+      btnReverse.className = "action-btn btn-reverse";
+      btnReverse.textContent = "+ Reverse";
+      btnReverse.onclick = function() { addVariant("countReverse"); };
+
+      var btnHolo = document.createElement("button");
+      btnHolo.className = "action-btn btn-holo";
+      btnHolo.textContent = "+ Holo";
+      btnHolo.onclick = function() { addVariant("countHolo"); };
+
+      btnGroup.appendChild(btnNormal);
+      btnGroup.appendChild(btnReverse);
+      btnGroup.appendChild(btnHolo);
+
+      status.innerText = "";
+      resultDiv.style.display = "block";
+      
+      resultDiv.appendChild(img);
+      resultDiv.appendChild(h3);
+      resultDiv.appendChild(pId);
+      resultDiv.appendChild(priceBox);
+      resultDiv.appendChild(badge);
+      resultDiv.appendChild(variantBox);
+      resultDiv.appendChild(btnGroup);
     }
 
     async function addVariant(variantType) {
       if (!currentCardData) return;
-      const id = currentCardData.id;
-      const name = currentCardData.name;
-      const image = currentCardData.image;
-      const prices = extractPrices(currentCardData);
+      var id = currentCardData.id;
+      var prices = extractPrices(currentCardData);
 
-      const localCard = await db.cards.get(id) || { id: id, name: name, image: image, countNormal: 0, countReverse: 0, countHolo: 0 };
+      var localCard = await db.cards.get(id) || { 
+        id: id, name: currentCardData.name, image: currentCardData.image, 
+        countNormal: 0, countReverse: 0, countHolo: 0 
+      };
       
-      localCard.image = image;
+      localCard.image = currentCardData.image;
       localCard.priceEur = prices.eur;
       localCard.priceUsd = prices.usd;
       localCard[variantType] = (localCard[variantType] || 0) + 1;
@@ -631,18 +672,18 @@
 
     function resetScan() {
       currentCardData = null;
-      resultDiv.style.display = 'none';
-      selectionGrid.style.display = 'none';
-      resetBtn.style.display = 'none';
-      cameraContainer.style.display = 'block';
-      snapBtn.style.display = 'block';
+      resultDiv.style.display = "none";
+      selectionGrid.style.display = "none";
+      resetBtn.style.display = "none";
+      cameraContainer.style.display = "block";
+      snapBtn.style.display = "block";
       snapBtn.disabled = false;
-      debugAi.innerText = '';
-      status.innerText = 'Prêt !';
+      debugAi.innerText = "";
+      status.innerText = "Pret !";
     }
 
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('sw.js');
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("sw.js");
     }
   </script>
 </body>
