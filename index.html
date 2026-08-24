@@ -281,7 +281,7 @@
   </div>
 
   <footer>
-    Version du fichier generee le : <span id="build-timestamp">24/08/2026 13:21:25</span>
+    Version du fichier generee le : <span id="build-timestamp">24/08/2026 13:23:45</span>
   </footer>
 
   <script>
@@ -324,25 +324,20 @@
       return "https://via.placeholder.com/75x105/1e293b/94a3b8?text=No+Img";
     }
 
-    // Nouvelle fonction d'extraction qui va directement chercher les prix dans TCGdex
     function extractPrices(card) {
       var eur = null;
       var usd = null;
 
-      // TCGdex renvoie parfois une struct "pricing" directe avec Cardmarket / TCGPlayer
-      if (card) {
-        if (card.cardmarket && card.cardmarket.prices) {
-          eur = card.cardmarket.prices.trendPrice || card.cardmarket.prices.averageSellPrice || card.cardmarket.prices.avg1 || null;
-        } else if (card.pricing && card.pricing.cardmarket) {
-          eur = card.pricing.cardmarket.trend || card.pricing.cardmarket.avg || null;
+      if (card && card.pricing) {
+        if (card.pricing.cardmarket) {
+          var cm = card.pricing.cardmarket;
+          eur = cm.trend || cm.avg || cm['trend-holo'] || cm['avg-holo'] || null;
         }
 
-        if (card.tcgplayer && card.tcgplayer.prices) {
-          var prices = card.tcgplayer.prices;
-          var variant = prices.normal || prices.holofoil || prices.reverseHolofoil || {};
-          usd = variant.marketPrice || variant.midPrice || null;
-        } else if (card.pricing && card.pricing.tcgplayer) {
-          usd = card.pricing.tcgplayer.mid || card.pricing.tcgplayer.market || null;
+        if (card.pricing.tcgplayer) {
+          var tp = card.pricing.tcgplayer;
+          var variant = tp.normal || tp.holofoil || tp['reverse-holofoil'] || tp.reverse || {};
+          usd = variant.marketPrice || variant.midPrice || variant.lowPrice || null;
         }
       }
 
@@ -531,10 +526,8 @@
     async function fetchFullCardDetailsAndDisplay(cardId) {
       status.innerText = "Chargement des details...";
       try {
-        // TCGdex renvoie les détails complets, y compris les prix si disponibles
         var res = await fetch("https://api.tcgdex.net/v2/fr/cards/" + cardId);
         var fullCard = await res.json();
-
         checkAndDisplayCard(fullCard);
       } catch (e) {
         status.innerText = "Erreur lors du chargement de la carte.";
