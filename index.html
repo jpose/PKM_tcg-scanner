@@ -311,7 +311,7 @@
   </footer>
 
   <script>
-    const LAST_BUILD = "2026-08-24T16:06:00";
+    const LAST_BUILD = "2026-08-24T16:15:00";
     document.getElementById("build-timestamp").textContent = new Date(LAST_BUILD).toLocaleString("fr-FR", {
       dateStyle: "short",
       timeStyle: "short"
@@ -342,6 +342,7 @@
       document.getElementById("view-collection").style.display = (tab === "collection") ? "block" : "none";
 
       if (tab === "collection") {
+        await syncMissingPrices();
         await renderCollection();
       }
     }
@@ -360,14 +361,46 @@
       return "https://via.placeholder.com/150x210/1e293b/94a3b8?text=Image+Indisponible";
     }
 
-    // Extraction de la cote estimée dans les données de l'API
     function extractCardPrice(card) {
-      if (card.pricing) {
-        if (card.pricing.cardmarket && card.pricing.cardmarket.avg) return card.pricing.cardmarket.avg;
-        if (card.pricing.cardmarket && card.pricing.cardmarket.trend) return card.pricing.cardmarket.trend;
-        if (card.pricing.tcgplayer && card.pricing.tcgplayer.market) return card.pricing.tcgplayer.market;
+      if (!card || !card.pricing) return null;
+
+      if (card.pricing.cardmarket) {
+        if (typeof card.pricing.cardmarket.avg === "number") return card.pricing.cardmarket.avg;
+        if (typeof card.pricing.cardmarket.trend === "number") return card.pricing.cardmarket.trend;
+        if (typeof card.pricing.cardmarket.low === "number") return card.pricing.cardmarket.low;
+      }
+      if (card.pricing.tcgplayer) {
+        if (typeof card.pricing.tcgplayer.market === "number") return card.pricing.tcgplayer.market;
+        if (typeof card.pricing.tcgplayer.mid === "number") return card.pricing.tcgplayer.mid;
       }
       return null;
+    }
+
+    // Fonction de synchronisation automatique pour les cartes de la collection sans cote
+    async function syncMissingPrices() {
+      var allCards = await db.cards.toArray();
+      var missing = allCards.filter(function(c) {
+        return c.priceEur === undefined || c.priceEur === null || c.priceEur === 0;
+      });
+
+      if (missing.length === 0) return;
+
+      for (var i = 0; i < missing.length; i++) {
+        var c = missing[i];
+        try {
+          var res = await fetch("https://api.tcgdex.net/v2/fr/cards/" + c.id);
+          if (res.ok) {
+            var fullCard = await res.json();
+            var price = extractCardPrice(fullCard);
+            if (price) {
+              c.priceEur = price;
+              await db.cards.put(c);
+            }
+          }
+        } catch (e) {
+          console.warn("Impossible de mettre à jour le prix pour : " + c.id);
+        }
+      }
     }
 
     snapBtn.addEventListener("click", async function() {
@@ -511,7 +544,7 @@
 
       var priceDiv = document.createElement("div");
       priceDiv.className = "price-tag";
-      priceDiv.textContent = price ? ("Cote estimée : ~" + Number(price).toFixed(2) + " €") : "Cote indisponible";
+      priceDiv.textContent = price ? ("Cote estimée : ~" + Number(price).toFixed(2) + " €") : "Cote non disponible";
 
       var badge = document.createElement("div");
       badge.className = "badge " + (totalOwned > 0 ? "badge-owned" : "badge-new");
@@ -655,7 +688,7 @@
         
         var idTxt = document.createElement("p");
         idTxt.className = "id-txt";
-        var priceDisplay = card.priceEur ? (" — Cote : ~" + Number(card.priceEur).toFixed(2) + " €") : "";
+        var priceDisplay = (card.priceEur && card.priceEur > 0) ? (" — Cote : ~" + Number(card.priceEur).toFixed(2) + " €") : " — Cote : non spécifiée";
         idTxt.textContent = card.id + priceDisplay;
 
         info.appendChild(header);
@@ -735,6 +768,7 @@
 
           if (confirm("Importer cette sauvegarde ?")) {
             await db.cards.bulkPut(importedData);
+            await syncMissingPrices();
             await renderCollection();
             alert("Collection importée ! (" + importedData.length + " références)");
           }
