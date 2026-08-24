@@ -7,124 +7,240 @@
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#3b82f6">
 
-  <!-- Dexie.js (Base de données locale) et Tesseract.js (OCR) -->
+  <!-- Dexie.js (BDD locale) & Tesseract.js (OCR) -->
   <script src="https://unpkg.com/dexie@latest/dist/dexie.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 
   <style>
     * { box-sizing: border-box; font-family: system-ui, sans-serif; }
     body { margin: 0; padding: 16px; background: #f3f4f6; color: #1f2937; text-align: center; }
-    h1 { font-size: 1.25rem; margin-bottom: 1rem; }
+    h1 { font-size: 1.25rem; margin-bottom: 0.25rem; }
+    p.instructions { font-size: 0.85rem; color: #6b7280; margin-top: 0; margin-bottom: 12px; }
+    
     .camera-box { position: relative; width: 100%; max-width: 400px; margin: 0 auto; background: #000; border-radius: 12px; overflow: hidden; }
     video { width: 100%; display: block; }
-    button { margin-top: 12px; padding: 12px 24px; font-size: 1rem; font-weight: bold; color: white; background: #2563eb; border: none; border-radius: 8px; cursor: pointer; width: 100%; max-width: 400px; }
+    
+    /* Rectangle de visée pour cibler le nom */
+    .target-overlay {
+      position: absolute;
+      top: 10%;
+      left: 10%;
+      width: 80%;
+      height: 20%;
+      border: 2px dashed #ef4444;
+      border-radius: 6px;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4);
+      pointer-events: none;
+    }
+
+    button { margin-top: 12px; padding: 12px 16px; font-size: 0.95rem; font-weight: bold; color: white; background: #2563eb; border: none; border-radius: 8px; cursor: pointer; width: 100%; max-width: 400px; }
+    button.secondary { background: #6b7280; }
+    button.btn-reverse { background: #8b5cf6; }
+    button.btn-holo { background: #f59e0b; }
     button:disabled { background: #9ca3af; }
-    #status { margin-top: 12px; font-size: 0.9rem; color: #4b5563; }
+    
+    #status { margin-top: 12px; font-size: 0.9rem; color: #4b5563; font-weight: 500; }
+    
+    /* Grille de choix d'édition */
+    #selection-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 400px; margin: 16px auto; }
+    .card-choice { background: white; padding: 8px; border-radius: 8px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .card-choice img { width: 100%; border-radius: 4px; }
+    .card-choice p { margin: 8px 0 0; font-size: 0.75rem; font-weight: bold; color: #374151; word-break: break-all; }
+
+    /* Fiche résultat */
     .card-result { margin-top: 16px; padding: 16px; background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); display: inline-block; width: 100%; max-width: 400px; }
-    .card-result img { max-width: 150px; border-radius: 8px; }
+    .card-result img { max-width: 180px; border-radius: 8px; }
     .badge { display: inline-block; padding: 4px 12px; border-radius: 9999px; font-weight: bold; margin-top: 8px; }
     .badge-owned { background: #dcfce7; color: #166534; }
     .badge-new { background: #dbeafe; color: #1e40af; }
+    
+    .variant-box { margin-top: 16px; text-align: left; background: #f9fafb; padding: 12px; border-radius: 8px; font-size: 0.9rem; }
+    .btn-group { display: flex; gap: 8px; margin-top: 12px; }
+    .btn-group button { margin-top: 0; font-size: 0.8rem; padding: 10px 6px; }
   </style>
 </head>
 <body>
 
   <h1>Scanner de cartes TCG</h1>
+  <p class="instructions" id="instructions">Cadre le NOM de la carte dans le rectangle rouge</p>
 
-  <div class="camera-box">
+  <div class="camera-box" id="camera-container">
     <video id="video" autoplay playsinline></video>
+    <div class="target-overlay"></div>
   </div>
 
   <button id="snap-btn">Photographier la carte</button>
+  <button id="reset-btn" class="secondary" style="display: none;" onclick="resetScan()">Scanner une autre carte</button>
+  
   <div id="status">Chargement de la caméra...</div>
 
+  <!-- Selection d'édition -->
+  <div id="selection-grid" style="display: none;"></div>
+
+  <!-- Résultat et finitions -->
   <div id="result" class="card-result" style="display: none;"></div>
 
   <script>
-    // 1. Initialisation de la BDD locale Dexie
+    // BDD IndexedDB avec versionning pour les finitions
     const db = new Dexie('TCGCollection');
-    db.version(1).stores({ cards: 'id, name, count' });
+    db.version(2).stores({ 
+      cards: 'id, name, countNormal, countReverse, countHolo' 
+    });
 
     const video = document.getElementById('video');
     const snapBtn = document.getElementById('snap-btn');
+    const resetBtn = document.getElementById('reset-btn');
     const status = document.getElementById('status');
     const resultDiv = document.getElementById('result');
+    const selectionGrid = document.getElementById('selection-grid');
+    const cameraContainer = document.getElementById('camera-container');
 
-    // 2. Accès à la caméra du téléphone
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+    let currentCardData = null;
+
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } } })
       .then(stream => { video.srcObject = stream; status.innerText = 'Prêt à scanner !'; })
       .catch(err => { status.innerText = 'Erreur caméra : ' + err.message; });
 
-    // 3. Prise de photo et traitement
     snapBtn.addEventListener('click', async () => {
       snapBtn.disabled = true;
-      status.innerText = 'Lecture du texte sur la carte (OCR)...';
-      resultDiv.style.display = 'none';
+      status.innerText = 'Analyse de la zone du nom...';
 
       const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      canvas.getContext('2d').drawImage(video, 0, 0);
+      const ctx = canvas.getContext('2d');
+      const cropX = video.videoWidth * 0.10;
+      const cropY = video.videoHeight * 0.10;
+      const cropWidth = video.videoWidth * 0.80;
+      const cropHeight = video.videoHeight * 0.20;
+
+      canvas.width = cropWidth;
+      canvas.height = cropHeight;
+      ctx.drawImage(video, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
 
       try {
-        // Reconnaissance OCR du texte
         const { data: { text } } = await Tesseract.recognize(canvas, 'fra+eng');
-        const cleanedText = text.trim().split('\n')[0]; // On prend la 1ère ligne (nom probable)
+        const cleanedName = text.replace(/[^a-zA-Zà-ÿÀ-Ÿ\s-]/g, '').trim().split('\n')[0];
 
-        status.innerText = `Recherche de "${cleanedText}" sur TCGdex...`;
-
-        // Requête sur l'API TCGdex (Pokémon FR)
-        const response = await fetch(`https://api.tcgdex.net/v2/fr/cards?name=${encodeURIComponent(cleanedText)}`);
-        const cards = await response.json();
-
-        if (!cards || cards.length === 0) {
-          status.innerText = 'Aucune carte trouvée. Réessayez avec un meilleur éclairage.';
+        if (!cleanedName || cleanedName.length < 3) {
+          status.innerText = 'Texte illisible. Cadre bien le NOM dans le rectangle.';
           snapBtn.disabled = false;
           return;
         }
 
-        const match = cards[0]; // Première carte correspondante
-        await checkAndDisplayCard(match);
+        status.innerText = `Recherche de "${cleanedName}"...`;
+
+        const response = await fetch(`https://api.tcgdex.net/v2/fr/cards?name=${encodeURIComponent(cleanedName)}`);
+        const cards = await response.json();
+
+        const validCards = Array.isArray(cards) ? cards.filter(c => c.image) : [];
+
+        if (!validCards || validCards.length === 0) {
+          status.innerText = `Aucune carte trouvée pour "${cleanedName}".`;
+          snapBtn.disabled = false;
+          return;
+        }
+
+        if (validCards.length === 1) {
+          await checkAndDisplayCard(validCards[0]);
+        } else {
+          showEditionSelection(validCards);
+        }
 
       } catch (err) {
-        status.innerText = 'Erreur lors de l\'analyse : ' + err.message;
-      } finally {
+        status.innerText = 'Erreur : ' + err.message;
         snapBtn.disabled = false;
       }
     });
 
-    // 4. Vérification dans IndexedDB et affichage
+    function showEditionSelection(cards) {
+      status.innerText = `${cards.length} éditions trouvées. Tape sur la tienne :`;
+      cameraContainer.style.display = 'none';
+      snapBtn.style.display = 'none';
+      resetBtn.style.display = 'block';
+      selectionGrid.style.display = 'grid';
+      selectionGrid.innerHTML = '';
+
+      cards.slice(0, 20).forEach(card => {
+        const div = document.createElement('div');
+        div.className = 'card-choice';
+        div.innerHTML = `
+          <img src="${card.image}/low.png" alt="${card.name}" loading="lazy">
+          <p>${card.id}</p>
+        `;
+        div.onclick = () => {
+          selectionGrid.style.display = 'none';
+          checkAndDisplayCard(card);
+        };
+        selectionGrid.appendChild(div);
+      });
+    }
+
     async function checkAndDisplayCard(card) {
-      const localCard = await db.cards.get(card.id);
-      const isOwned = !!localCard;
-      const count = isOwned ? localCard.count : 0;
+      currentCardData = card;
+      cameraContainer.style.display = 'none';
+      snapBtn.style.display = 'none';
+      selectionGrid.style.display = 'none';
+      resetBtn.style.display = 'block';
+      
+      const localCard = await db.cards.get(card.id) || { countNormal: 0, countReverse: 0, countHolo: 0 };
+      const totalOwned = (localCard.countNormal || 0) + (localCard.countReverse || 0) + (localCard.countHolo || 0);
 
       status.innerText = '';
       resultDiv.style.display = 'block';
       resultDiv.innerHTML = `
-        <img src="${card.image}/high.png" alt="${card.name}" onerror="this.src='https://via.placeholder.com/150'">
+        <img src="${card.image}/high.png" alt="${card.name}">
         <h3>${card.name}</h3>
-        <p>ID : ${card.id}</p>
-        <div class="badge ${isOwned ? 'badge-owned' : 'badge-new'}">
-          ${isOwned ? `Déjà en possession (x${count})` : 'Nouvelle carte !'}
+        <p>Édition / ID : ${card.id}</p>
+
+        <div class="badge ${totalOwned > 0 ? 'badge-owned' : 'badge-new'}">
+          ${totalOwned > 0 ? `Possédée (Total : x${totalOwned})` : 'Nouvelle carte !'}
         </div>
-        <br><br>
-        <button onclick="addCard('${card.id}', '${card.name.replace(/'/g, "\\'")}')">
-          ${isOwned ? 'Ajouter un exemplaire' : 'Ajouter à ma collection'}
-        </button>
+
+        <div class="variant-box">
+          <p style="margin: 4px 0;"><strong>Normal :</strong> x${localCard.countNormal || 0}</p>
+          <p style="margin: 4px 0;"><strong>Reverse :</strong> x${localCard.countReverse || 0}</p>
+          <p style="margin: 4px 0;"><strong>Holo :</strong> x${localCard.countHolo || 0}</p>
+        </div>
+
+        <div class="btn-group">
+          <button onclick="addVariant('countNormal')">+ Normal</button>
+          <button onclick="addVariant('countReverse')" class="btn-reverse">+ Reverse</button>
+          <button onclick="addVariant('countHolo')" class="btn-holo">+ Holo</button>
+        </div>
       `;
     }
 
-    // 5. Ajout à la BDD locale
-    async function addCard(id, name) {
-      const localCard = await db.cards.get(id);
-      const currentCount = localCard ? localCard.count : 0;
-      await db.cards.put({ id: id, name: name, count: currentCount + 1 });
-      alert(`Carte "${name}" mise à jour dans votre collection !`);
-      location.reload();
+    async function addVariant(variantType) {
+      if (!currentCardData) return;
+
+      const id = currentCardData.id;
+      const name = currentCardData.name;
+
+      const localCard = await db.cards.get(id) || { 
+        id: id, 
+        name: name, 
+        countNormal: 0, 
+        countReverse: 0, 
+        countHolo: 0 
+      };
+
+      localCard[variantType] = (localCard[variantType] || 0) + 1;
+      await db.cards.put(localCard);
+
+      // Rafraîchit l'affichage avec la nouvelle quantité
+      checkAndDisplayCard(currentCardData);
     }
 
-    // Enregistrement du Service Worker pour la PWA
+    function resetScan() {
+      currentCardData = null;
+      resultDiv.style.display = 'none';
+      selectionGrid.style.display = 'none';
+      resetBtn.style.display = 'none';
+      cameraContainer.style.display = 'block';
+      snapBtn.style.display = 'block';
+      snapBtn.disabled = false;
+      status.innerText = 'Prêt à scanner !';
+    }
+
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('sw.js');
     }
