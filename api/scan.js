@@ -1,4 +1,5 @@
 export default async function handler(req, res) {
+  // Config CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -21,7 +22,7 @@ export default async function handler(req, res) {
     let rawBase64 = base64 || image;
 
     if (!rawBase64) {
-      return res.status(400).json({ error: 'Aucune donnée d image reçue' });
+      return res.status(400).json({ error: 'Aucune image envoyée' });
     }
 
     if (rawBase64.includes(',')) {
@@ -29,41 +30,64 @@ export default async function handler(req, res) {
     }
     rawBase64 = rawBase64.replace(/(\r\n|\n|\r)/gm, "").trim();
 
-    // Utilisation de l'API v1 stable avec gemini-1.5-flash
-    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    // Combinaisons d'endpoints et de modèles à tester
+    const ENDPOINTS = [
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+      "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent",
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+    ];
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            { text: "Identifie cette carte Pokémon. Donne uniquement son NOM officiel en français, sans aucun autre texte." },
-            {
-              inline_data: {
-                mime_type: "image/jpeg",
-                data: rawBase64
-              }
-            }
-          ]
-        }]
-      })
-    });
+    let lastGoogleError = null;
 
-    const data = await response.json();
+    for (const baseUrl of ENDPOINTS) {
+      const targetUrl = `${baseUrl}?key=${apiKey}`;
 
-    if (!response.ok || data.error) {
-      return res.status(response.status || 400).json({
-        error: "Erreur Google Gemini",
-        google_http_status: response.status,
-        google_response: data
-      });
+      try {
+        const response = await fetch(targetUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                { text: "Identifie cette carte Pokémon. Donne uniquement son NOM officiel en français, sans aucun autre texte." },
+                {
+                  inline_data: {
+                    mime_type: "image/jpeg",
+                    data: rawBase64
+                  }
+                }
+              ]
+            }]
+          })
+        });
+
+        const data = await response.json();
+
+        if (response.ok && !data.error) {
+          const cardName = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+          if (cardName) {
+            return res.status(200).json({ name: cardName, endpointUsed: baseUrl });
+          }
+        }
+
+        lastGoogleError = {
+          url: baseUrl,
+          status: response.status,
+          response: data
+        };
+
+      } catch (err) {
+        lastGoogleError = { url: baseUrl, error: err.message };
+      }
     }
 
-    const cardName = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
-    return res.status(200).json({ name: cardName });
+    // Si aucune des URLs n'a fonctionné, on renvoie le détail précis
+    return res.status(400).json({
+      error: "Toutes les tentatives d'URL ont échoué.",
+      debug_details: lastGoogleError
+    });
 
   } catch (err) {
-    return res.status(500).json({ error: "Erreur d exécution Vercel", details: err.message });
+    return res.status(500).json({ error: "Erreur serveur Vercel", details: err.message });
   }
 }
