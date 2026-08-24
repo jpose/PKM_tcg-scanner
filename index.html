@@ -18,7 +18,6 @@
       --text-muted: #94a3b8;
       --border-color: #334155;
       --price-color: #10b981;
-      --error-color: #ef4444;
     }
 
     * { box-sizing: border-box; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
@@ -127,20 +126,7 @@
     button:disabled { opacity: 0.5; cursor: not-allowed; }
 
     #status { margin-top: 12px; font-size: 0.9rem; color: #cbd5e1; font-weight: 500; }
-    #debug-ai { font-size: 0.8rem; color: #818cf8; margin-top: 4px; font-family: monospace; }
-    
-    .error-banner {
-      display: none;
-      margin-top: 12px;
-      padding: 10px 12px;
-      background: rgba(239, 68, 68, 0.15);
-      border: 1px solid var(--error-color);
-      border-radius: 8px;
-      color: #fca5a5;
-      font-size: 0.8rem;
-      text-align: left;
-      word-break: break-word;
-    }
+    #debug-ai { font-size: 0.8rem; color: #818cf8; margin-top: 4px; font-family: monospace; word-break: break-all; }
 
     #selection-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px auto; }
 
@@ -168,19 +154,6 @@
 
     .card-result img { max-width: 170px; border-radius: 10px; box-shadow: 0 6px 12px rgba(0,0,0,0.4); }
 
-    .price-box {
-      margin: 12px 0;
-      background: rgba(16, 185, 129, 0.1);
-      border: 1px solid rgba(16, 185, 129, 0.3);
-      padding: 10px;
-      border-radius: 8px;
-      font-size: 0.85rem;
-      color: #34d399;
-      font-weight: 600;
-      line-height: 1.5;
-      text-align: left;
-    }
-
     .badge {
       display: inline-block;
       padding: 6px 14px;
@@ -192,15 +165,17 @@
     .badge-owned { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e; }
     .badge-new { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid #3b82f6; }
 
-    .variant-box {
-      margin-top: 14px;
-      text-align: left;
+    .price-list {
+      margin: 10px 0;
+      padding: 8px 12px;
       background: #0f172a;
-      padding: 12px 16px;
-      border-radius: 10px;
-      font-size: 0.85rem;
+      border-radius: 8px;
       border: 1px solid var(--border-color);
+      font-size: 0.8rem;
+      text-align: left;
     }
+    .price-item { display: flex; justify-content: space-between; padding: 3px 0; }
+    .price-item span.val { font-weight: bold; color: var(--price-color); }
 
     .btn-group { display: flex; gap: 8px; margin-top: 12px; }
     .btn-group button { margin-top: 0; font-size: 0.8rem; padding: 10px 4px; }
@@ -221,17 +196,8 @@
 
     .collection-stats span.total-val { color: var(--price-color); font-size: 1.05rem; }
 
-    .backup-actions {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 16px;
-    }
-
-    .backup-actions button {
-      margin-top: 0;
-      font-size: 0.8rem;
-      padding: 10px;
-    }
+    .backup-actions { display: flex; gap: 8px; margin-bottom: 16px; }
+    .backup-actions button { margin-top: 0; font-size: 0.8rem; padding: 10px; }
 
     .collection-grid-view { display: flex; flex-direction: column; gap: 12px; }
 
@@ -277,6 +243,9 @@
       font-size: 0.75rem;
       color: var(--text-muted);
       border-top: 1px dashed var(--border-color);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
     }
   </style>
 </head>
@@ -306,7 +275,6 @@
         
         <div id="status">Prêt !</div>
         <div id="debug-ai"></div>
-        <div id="error-details" class="error-banner"></div>
 
         <div id="selection-grid" style="display: none;"></div>
         <div id="result" class="card-result" style="display: none;"></div>
@@ -314,12 +282,16 @@
 
       <div id="view-collection" style="display: none;">
         <h1>Ma Collection</h1>
-        <div class="collection-stats" id="collection-stats">Chargement...</div>
 
         <div class="backup-actions">
-          <button class="action-btn secondary" onclick="exportCollection()">Exporter JSON</button>
-          <button class="action-btn secondary" onclick="document.getElementById('import-file').click()">Importer JSON</button>
-          <input type="file" id="import-file" accept=".json" style="display: none;" onchange="importCollection(event)">
+          <button class="action-btn secondary" onclick="exportCollection()">Exporter (JSON)</button>
+          <button class="action-btn secondary" onclick="document.getElementById('import-file').click()">Importer</button>
+          <input type="file" id="import-file" style="display: none;" accept=".json" onchange="importCollection(event)">
+        </div>
+
+        <div class="collection-stats" id="collection-stats">
+          <div>Cartes : 0 | Exemplaires : 0</div>
+          <div>Valeur estimée : <span class="total-val">0.00 €</span></div>
         </div>
 
         <div id="collection-list" class="collection-grid-view"></div>
@@ -328,627 +300,426 @@
   </div>
 
   <footer>
-    Version mise à jour le : <span id="build-timestamp">24/08/2026 16:56:00</span>
+    <div>Propulsé par TCGdex API & DexieDB</div>
+    <div id="footer-timestamp"></div>
   </footer>
 
   <script>
-    var db = new Dexie("TCGCollection");
-    db.version(5).stores({ cards: "id, name, image" });
-
-    var video = document.getElementById("video");
-    var snapBtn = document.getElementById("snap-btn");
-    var resetBtn = document.getElementById("reset-btn");
-    var status = document.getElementById("status");
-    var debugAi = document.getElementById("debug-ai");
-    var errorDetails = document.getElementById("error-details");
-    var resultDiv = document.getElementById("result");
-    var selectionGrid = document.getElementById("selection-grid");
-    var cameraContainer = document.getElementById("camera-container");
-
-    var currentCardData = null;
-    var cameraStream = null;
-
-    startCamera();
-
-    function startCamera() {
-      if (cameraStream) return;
-      navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1280 } } })
-        .then(function(stream) { 
-          cameraStream = stream;
-          video.srcObject = stream; 
-          status.innerText = "Prêt !";
-        })
-        .catch(function(err) { 
-          showError("Erreur d'accès caméra : " + err.message);
-        });
+    // Horodatage dynamique du bas de page
+    function updateFooterTimestamp() {
+      const now = new Date();
+      const formattedDate = now.toLocaleDateString('fr-FR', {
+        day: '2-digit', month: '2-digit', year: 'numeric'
+      });
+      const formattedTime = now.toLocaleTimeString('fr-FR', {
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
+      });
+      document.getElementById('footer-timestamp').innerText = `Dernière mise à jour : ${formattedDate} à ${formattedTime}`;
     }
+    updateFooterTimestamp();
+    setInterval(updateFooterTimestamp, 1000);
 
-    function stopCamera() {
-      if (cameraStream) {
-        cameraStream.getTracks().forEach(function(track) { track.stop(); });
-        cameraStream = null;
-        video.srcObject = null;
+    // Initialisation BDD Dexie
+    const db = new Dexie("PokemonCollectionDB");
+    db.version(2).stores({
+      cards: 'id, name, setCode, countNormal, countReverse, countHolo, prices'
+    });
+
+    const video = document.getElementById('video');
+    const snapBtn = document.getElementById('snap-btn');
+    const resetBtn = document.getElementById('reset-btn');
+    const statusDiv = document.getElementById('status');
+    const debugDiv = document.getElementById('debug-ai');
+    const resultDiv = document.getElementById('result');
+    const selectionGrid = document.getElementById('selection-grid');
+    const cameraContainer = document.getElementById('camera-container');
+
+    let currentCardData = null;
+
+    // Démarrage caméra
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+      .then(stream => { video.srcObject = stream; })
+      .catch(err => { statusDiv.innerText = "Erreur caméra: " + err.message; });
+
+    function switchTab(tab) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById('view-scan').style.display = 'none';
+      document.getElementById('view-collection').style.display = 'none';
+
+      if (tab === 'scan') {
+        document.getElementById('tab-scan-btn').classList.add('active');
+        document.getElementById('view-scan').style.display = 'block';
+      } else {
+        document.getElementById('tab-collection-btn').classList.add('active');
+        document.getElementById('view-collection').style.display = 'block';
+        loadCollection();
       }
     }
 
-    function showError(msg) {
-      status.innerText = "Erreur détectée";
-      errorDetails.innerText = msg;
-      errorDetails.style.display = "block";
-    }
+    snapBtn.addEventListener('click', async () => {
+      statusDiv.innerText = "Capture et analyse en cours...";
+      debugDiv.innerText = "";
+      snapBtn.disabled = true;
 
-    function clearError() {
-      errorDetails.innerText = "";
-      errorDetails.style.display = "none";
-    }
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0);
 
-    async function switchTab(tab) {
-      clearError();
-      document.getElementById("tab-scan-btn").classList.toggle("active", tab === "scan");
-      document.getElementById("tab-collection-btn").classList.toggle("active", tab === "collection");
-      document.getElementById("view-scan").style.display = (tab === "scan") ? "block" : "none";
-      document.getElementById("view-collection").style.display = (tab === "collection") ? "block" : "none";
-
-      if (tab === "scan") {
-        startCamera();
-      } else if (tab === "collection") {
-        stopCamera();
-        await renderCollection();
-      }
-    }
-
-    function getCardImageUrl(card) {
-      if (card && card.image) {
-        if (card.image.endsWith(".png") || card.image.endsWith(".jpg")) {
-          return card.image;
-        }
-        return card.image + "/low.png";
-      }
-      return "https://via.placeholder.com/75x105/1e293b/94a3b8?text=No+Img";
-    }
-
-    async function getCardPrices(card) {
-      var prices = {
-        normal: { eur: null, usd: null },
-        reverse: { eur: null, usd: null },
-        holo: { eur: null, usd: null }
-      };
-
-      if (card && card.pricing) {
-        if (card.pricing.cardmarket) {
-          var cm = card.pricing.cardmarket;
-          prices.normal.eur = cm.trend || cm.avg || null;
-          prices.holo.eur = cm['trend-holo'] || cm['avg-holo'] || null;
-          prices.reverse.eur = cm['trend-reverse'] || cm['avg-reverse'] || prices.holo.eur || prices.normal.eur;
-        }
-        if (card.pricing.tcgplayer) {
-          var tp = card.pricing.tcgplayer;
-          if (tp.normal) prices.normal.usd = tp.normal.marketPrice || tp.normal.midPrice || null;
-          if (tp.holofoil) prices.holo.usd = tp.holofoil.marketPrice || tp.holofoil.midPrice || null;
-          if (tp['reverse-holofoil']) prices.reverse.usd = tp['reverse-holofoil'].marketPrice || tp['reverse-holofoil'].midPrice || null;
-        }
-      }
-
-      if (prices.normal.eur || prices.holo.eur || prices.normal.usd || prices.holo.usd) {
-        return prices;
-      }
+      const base64Image = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
 
       try {
-        var rawNum = card.localId || (card.id ? card.id.split('-').pop() : null);
-        var num = rawNum ? parseInt(rawNum, 10) : null;
+        const aiResponse = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'anthropic-dangerous-direct-browser-access': 'true'
+          },
+          body: JSON.stringify({
+            model: "claude-3-5-sonnet-20241022",
+            max_tokens: 150,
+            messages: [{
+              role: "user",
+              content: [
+                { type: "image", source: { type: "base64", media_type: "image/jpeg", data: base64Image } },
+                { type: "text", text: "Identifie cette carte Pokémon. Renvoie UNIQUEMENT un objet JSON valide avec les clés: name (nom anglais ou international), localId (numéro de la carte dans le set ex: '025' ou '12'), setCode (code du set si lisible sinon null). Exemple: {\"name\": \"Pikachu\", \"localId\": \"025\", \"setCode\": \"151\"}" }
+              ]
+            }]
+          })
+        });
 
-        if (num && !isNaN(num)) {
-          var res = await fetch("https://api.pokemontcg.io/v2/cards?q=number:" + num);
-          if (res.ok) {
-            var data = await res.json();
-            if (data && data.data && data.data.length > 0) {
-              var matched = data.data.find(function(c) {
-                if (!c.set || !card.set) return false;
-                var cSet = (c.set.id || "").toLowerCase();
-                var cardSet = (card.set.id || "").toLowerCase();
-                return cSet === cardSet || c.set.name.toLowerCase().includes((card.set.name || "").toLowerCase());
-              }) || data.data[0];
+        if (!aiResponse.ok) {
+          throw new Error(`Erreur HTTP: ${aiResponse.status}`);
+        }
 
-              if (matched.cardmarket && matched.cardmarket.prices) {
-                var cmp = matched.cardmarket.prices;
-                prices.normal.eur = cmp.trendPrice || cmp.averageSellPrice || null;
-                prices.reverse.eur = cmp.reverseHoloTrend || cmp.reverseHoloAvg || prices.normal.eur;
-                prices.holo.eur = cmp.trendPrice || cmp.averageSellPrice || null;
-              }
+        const aiData = await aiResponse.json();
+        const responseText = aiData.content[0].text;
+        debugDiv.innerText = "IA : " + responseText;
 
-              if (matched.tcgplayer && matched.tcgplayer.prices) {
-                var tpp = matched.tcgplayer.prices;
-                if (tpp.normal) prices.normal.usd = tpp.normal.marketPrice || tpp.normal.midPrice || null;
-                if (tpp.reverseHolofoil) prices.reverse.usd = tpp.reverseHolofoil.marketPrice || tpp.reverseHolofoil.midPrice || null;
-                if (tpp.holofoil) prices.holo.usd = tpp.holofoil.marketPrice || tpp.holofoil.midPrice || null;
-              }
-            }
-          }
+        const match = responseText.match(/\{[\s\S]*\}/);
+        if (!match) throw new Error("Format de réponse IA invalide");
+
+        const parsed = JSON.parse(match[0]);
+        await searchCardInTCGdex(parsed.name, parsed.localId);
+
+      } catch (err) {
+        statusDiv.innerText = "Erreur d'analyse IA : " + err.message;
+        console.error(err);
+        snapBtn.disabled = false;
+      }
+    });
+
+    async function searchCardInTCGdex(name, localId) {
+      statusDiv.innerText = `Recherche TCGdex pour "${name}"...`;
+      try {
+        const res = await fetch(`https://api.tcgdex.net/v2/fr/cards?name=${encodeURIComponent(name)}`);
+        const cards = await res.json();
+
+        if (!Array.isArray(cards) || cards.length === 0) {
+          statusDiv.innerText = "Aucune carte trouvée sous ce nom.";
+          snapBtn.disabled = false;
+          return;
+        }
+
+        let matches = cards.filter(c => c.localId === localId || (c.id && c.id.endsWith(`-${localId}`)));
+
+        if (matches.length === 0) {
+          matches = cards.slice(0, 4);
+        }
+
+        if (matches.length === 1) {
+          fetchFullCardDetails(matches[0].id);
+        } else if (matches.length > 1) {
+          displaySelectionGrid(matches);
+        } else {
+          statusDiv.innerText = "Aucune carte correspondante trouvée.";
+          snapBtn.disabled = false;
         }
       } catch (err) {
-        console.warn("Erreur chargement cote fallback :", err);
+        statusDiv.innerText = "Erreur de connexion à TCGdex.";
+        snapBtn.disabled = false;
+      }
+    }
+
+    function displaySelectionGrid(cards) {
+      cameraContainer.style.display = 'none';
+      snapBtn.style.display = 'none';
+      statusDiv.innerText = "Plusieurs cartes correspondent. Choisissez la bonne :";
+      selectionGrid.innerHTML = '';
+      selectionGrid.style.display = 'grid';
+
+      cards.forEach(card => {
+        const div = document.createElement('div');
+        div.className = 'card-choice';
+        div.onclick = () => fetchFullCardDetails(card.id);
+        div.innerHTML = `
+          <img src="${card.image}/high.png" onerror="this.src='${card.image}/low.png'" alt="${card.name}">
+          <p>${card.name} (#${card.localId})</p>
+        `;
+        selectionGrid.appendChild(div);
+      });
+    }
+
+    function extractPrices(data) {
+      const prices = { normal: 0, reverse: 0, holo: 0 };
+
+      if (data.cardmarket && data.cardmarket.prices) {
+        const p = data.cardmarket.prices;
+        prices.normal = p.averageSellPrice || p.avg || 0;
+        prices.reverse = p.reverseHoloAvg || p["avg-holo"] || 0;
+        prices.holo = p.holoAvg || p["avg-holo"] || prices.normal;
+      } else if (data.tcgplayer && data.tcgplayer.prices) {
+        const p = data.tcgplayer.prices;
+        if (p.normal) prices.normal = p.normal.market || p.normal.mid || 0;
+        if (p.reverseHolofoil) prices.reverse = p.reverseHolofoil.market || p.reverseHolofoil.mid || 0;
+        if (p.holofoil) prices.holo = p.holofoil.market || p.holofoil.mid || 0;
       }
 
       return prices;
     }
 
-    async function renderCollection() {
-      var listContainer = document.getElementById("collection-list");
-      var statsContainer = document.getElementById("collection-stats");
-      
-      var allCards = await db.cards.toArray();
-      var ownedCards = allCards.filter(function(c) {
-        return ((c.countNormal || 0) + (c.countReverse || 0) + (c.countHolo || 0)) > 0;
-      });
-
-      var totalCardsCount = 0;
-      var totalEstValue = 0;
-
-      ownedCards.forEach(function(c) {
-        var qNorm = c.countNormal || 0;
-        var qRev = c.countReverse || 0;
-        var qHolo = c.countHolo || 0;
-
-        totalCardsCount += qNorm + qRev + qHolo;
-
-        var valNorm = qNorm * (c.priceEurNormal || c.priceEur || 0);
-        var valRev = qRev * (c.priceEurReverse || c.priceEurNormal || c.priceEur || 0);
-        var valHolo = qHolo * (c.priceEurHolo || c.priceEurNormal || c.priceEur || 0);
-
-        totalEstValue += valNorm + valRev + valHolo;
-      });
-
-      statsContainer.innerHTML = "";
-      var statsInfo = document.createElement("div");
-      statsInfo.textContent = ownedCards.length + " uniques | " + totalCardsCount + " exemplaires";
-      var statsVal = document.createElement("span");
-      statsVal.className = "total-val";
-      statsVal.textContent = "Valeur estimée : ~" + totalEstValue.toFixed(2) + " €";
-      statsContainer.appendChild(statsInfo);
-      statsContainer.appendChild(statsVal);
-
-      if (ownedCards.length === 0) {
-        listContainer.innerHTML = '<p style="color:var(--text-muted); margin-top: 24px;">Votre collection est vide.</p>';
-        return;
-      }
-
-      listContainer.innerHTML = "";
-      
-      ownedCards.forEach(function(card) {
-        var imgUrl = getCardImageUrl(card);
-
-        var div = document.createElement("div");
-        div.className = "collection-item";
-        
-        var img = document.createElement("img");
-        img.src = imgUrl;
-        img.alt = card.name;
-        img.loading = "lazy";
-        
-        var info = document.createElement("div");
-        info.className = "collection-info";
-        
-        var header = document.createElement("div");
-        header.className = "item-header";
-        
-        var h4 = document.createElement("h4");
-        h4.textContent = card.name;
-        
-        var delBtn = document.createElement("button");
-        delBtn.className = "delete-btn";
-        delBtn.textContent = "Supprimer";
-        delBtn.onclick = function() { deleteCardFromCollection(card.id); };
-        
-        header.appendChild(h4);
-        header.appendChild(delBtn);
-        
-        var idTxt = document.createElement("p");
-        idTxt.className = "id-txt";
-        idTxt.textContent = card.id;
-
-        info.appendChild(header);
-        info.appendChild(idTxt);
-
-        var variantConfigs = [
-          { label: "Normal", key: "countNormal", price: card.priceEurNormal || card.priceEur },
-          { label: "Reverse", key: "countReverse", price: card.priceEurReverse || card.priceEurNormal || card.priceEur },
-          { label: "Holo", key: "countHolo", price: card.priceEurHolo || card.priceEurNormal || card.priceEur }
-        ];
-
-        variantConfigs.forEach(function(v) {
-          var qtyRow = document.createElement("div");
-          qtyRow.className = "qty-row";
-          
-          var priceText = v.price ? " (" + Number(v.price).toFixed(2) + " €)" : "";
-          var span = document.createElement("span");
-          span.innerHTML = v.label + priceText + " : <strong>" + (card[v.key] || 0) + "</strong>";
-          
-          var controls = document.createElement("div");
-          controls.className = "qty-controls";
-          
-          var btnMinus = document.createElement("button");
-          btnMinus.className = "qty-btn";
-          btnMinus.textContent = "-";
-          btnMinus.onclick = function() { updateCollectionQty(card.id, v.key, -1); };
-
-          var btnPlus = document.createElement("button");
-          btnPlus.className = "qty-btn";
-          btnPlus.textContent = "+";
-          btnPlus.onclick = function() { updateCollectionQty(card.id, v.key, 1); };
-
-          controls.appendChild(btnMinus);
-          controls.appendChild(btnPlus);
-          qtyRow.appendChild(span);
-          qtyRow.appendChild(controls);
-          info.appendChild(qtyRow);
-        });
-
-        div.appendChild(img);
-        div.appendChild(info);
-        listContainer.appendChild(div);
-      });
-    }
-
-    async function exportCollection() {
-      try {
-        var allCards = await db.cards.toArray();
-        if (allCards.length === 0) {
-          alert("Votre collection est vide, rien à exporter !");
-          return;
-        }
-
-        var jsonStr = JSON.stringify(allCards, null, 2);
-        var blob = new Blob([jsonStr], { type: "application/json" });
-        var url = URL.createObjectURL(blob);
-
-        var dateStr = new Date().toISOString().slice(0, 10);
-        var a = document.createElement("a");
-        a.href = url;
-        a.download = "tcg_collection_backup_" + dateStr + ".json";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      } catch (err) {
-        alert("Erreur lors de l'exportation : " + err.message);
-      }
-    }
-
-    function importCollection(event) {
-      var file = event.target.files[0];
-      if (!file) return;
-
-      var reader = new FileReader();
-      reader.onload = async function(e) {
-        try {
-          var importedData = JSON.parse(e.target.result);
-          if (!Array.isArray(importedData)) {
-            throw new Error("Format de fichier invalide (doit être une liste de cartes).");
-          }
-
-          var isValid = importedData.every(function(item) {
-            return item && typeof item === 'object' && typeof item.id === 'string' && typeof item.name === 'string';
-          });
-
-          if (!isValid) {
-            throw new Error("Le fichier contient des données de cartes corrompues ou incomplètes.");
-          }
-
-          if (confirm("Importer cette sauvegarde ? (" + importedData.length + " références)")) {
-            await db.cards.bulkPut(importedData);
-            await renderCollection();
-            alert("Collection importée avec succès !");
-          }
-        } catch (err) {
-          alert("Erreur lors de l'importation : " + err.message);
-        } finally {
-          event.target.value = "";
-        }
-      };
-      reader.readAsText(file);
-    }
-
-    async function updateCollectionQty(cardId, variantType, delta) {
-      var card = await db.cards.get(cardId);
-      if (!card) return;
-      card[variantType] = Math.max(0, (card[variantType] || 0) + delta);
-      await db.cards.put(card);
-      await renderCollection();
-    }
-
-    async function deleteCardFromCollection(cardId) {
-      if (confirm("Supprimer cette carte de votre collection ?")) {
-        await db.cards.delete(cardId);
-        await renderCollection();
-      }
-    }
-
-    // Gestion du bouton de scan avec Cooldown de 4 secondes
-    snapBtn.addEventListener("click", async function() {
-      clearError();
-      
-      if (!video.videoWidth || !video.videoHeight) {
-        showError("La caméra n'est pas encore prête. Attendez une seconde et réessayez.");
-        return;
-      }
-
-      snapBtn.disabled = true;
-      var cooldownSeconds = 4;
-      var originalText = "Analyser la carte";
-
-      function startCooldown() {
-        var timer = setInterval(function() {
-          snapBtn.innerText = "Patienter (" + cooldownSeconds + "s)...";
-          cooldownSeconds--;
-          if (cooldownSeconds < 0) {
-            clearInterval(timer);
-            snapBtn.disabled = false;
-            snapBtn.innerText = originalText;
-          }
-        }, 1000);
-      }
-
-      status.innerText = "Analyse par l'IA Gemini...";
-      debugAi.innerText = "";
-
-      var canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      var ctx = canvas.getContext("2d");
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-      var fullDataUrl = canvas.toDataURL("image/jpeg", 0.85);
-      var base64Raw = fullDataUrl.split(",")[1];
+    async function fetchFullCardDetails(cardId) {
+      selectionGrid.style.display = 'none';
+      statusDiv.innerText = "Chargement des détails...";
 
       try {
-        var apiRes = await fetch("/api/scan", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ image: fullDataUrl, base64: base64Raw })
-        });
+        const res = await fetch(`https://api.tcgdex.net/v2/fr/cards/${cardId}`);
+        const data = await res.json();
 
-        if (apiRes.status === 429) {
-          throw new Error("Quota Gemini dépassé (15 scans/min max). Attendez 1 minute avant de re-scanner.");
-        }
+        const prices = extractPrices(data);
 
-        if (!apiRes.ok) {
-          var errorText = await apiRes.text();
-          var parsedError = "";
-          try {
-            var jsonErr = JSON.parse(errorText);
-            parsedError = jsonErr.error || jsonErr.message || errorText;
-          } catch(e) {
-            parsedError = errorText;
-          }
-          throw new Error("HTTP " + apiRes.status + " : " + (parsedError || "Erreur serveur /api/scan"));
-        }
-
-        var apiData = await apiRes.json();
-        if (apiData.error) throw new Error(apiData.error);
-
-        var cardName = apiData.name || apiData.cardName || apiData.result;
-        debugAi.innerText = 'IA a détecté : "' + (cardName || "Rien") + '"';
-
-        if (!cardName || typeof cardName !== "string" || !cardName.trim()) {
-          showError("L'IA n'a pas pu lire le nom de la carte sur l'image.");
-          startCooldown();
-          return;
-        }
-
-        status.innerText = 'Recherche de "' + cardName.trim() + '"...';
-        var res = await fetch("https://api.tcgdex.net/v2/fr/cards?name=" + encodeURIComponent(cardName.trim()));
-        
-        if (!res.ok) throw new Error("Erreur TCGDex (HTTP " + res.status + ")");
-
-        var cards = await res.json();
-        var validCards = Array.isArray(cards) ? cards.filter(function(c) { return Boolean(c.image); }) : [];
-
-        if (validCards.length === 0) {
-          showError('Aucune carte trouvée dans la base de données pour "' + cardName + '".');
-          startCooldown();
-          return;
-        }
-
-        if (validCards.length === 1) {
-          await fetchFullCardDetailsAndDisplay(validCards[0].id);
-        } else {
-          showEditionSelection(validCards);
-        }
-
-      } catch (err) {
-        console.error("Scan Error:", err);
-        showError(err.message);
-        startCooldown();
-      }
-    });
-
-    async function fetchFullCardDetailsAndDisplay(cardId) {
-      status.innerText = "Chargement des cotes...";
-      try {
-        var res = await fetch("https://api.tcgdex.net/v2/fr/cards/" + cardId);
-        if (!res.ok) throw new Error("Impossible de charger les détails de la carte");
-        
-        var fullCard = await res.json();
-        fullCard._prices = await getCardPrices(fullCard);
-        checkAndDisplayCard(fullCard);
-      } catch (e) {
-        showError("Erreur : " + e.message);
-      }
-    }
-
-    function showEditionSelection(cards) {
-      status.innerText = cards.length + " cartes trouvées. Choisis la tienne :";
-      cameraContainer.style.display = "none";
-      snapBtn.style.display = "none";
-      resetBtn.style.display = "block";
-      selectionGrid.style.display = "grid";
-      selectionGrid.innerHTML = "";
-
-      cards.slice(0, 20).forEach(function(card) {
-        var imgUrl = getCardImageUrl(card);
-        var div = document.createElement("div");
-        div.className = "card-choice";
-        
-        var img = document.createElement("img");
-        img.src = imgUrl;
-        img.alt = card.name;
-
-        var pName = document.createElement("p");
-        pName.textContent = card.name;
-
-        var pId = document.createElement("p");
-        pId.style.color = "var(--text-muted)";
-        pId.style.fontWeight = "normal";
-        pId.textContent = card.id;
-
-        div.appendChild(img);
-        div.appendChild(pName);
-        div.appendChild(pId);
-
-        div.onclick = function() {
-          selectionGrid.style.display = "none";
-          fetchFullCardDetailsAndDisplay(card.id);
+        currentCardData = {
+          id: data.id,
+          name: data.name,
+          localId: data.localId,
+          setCode: data.set ? data.set.name : 'Inconnu',
+          image: `${data.image}/high.png`,
+          prices: prices
         };
 
-        selectionGrid.appendChild(div);
-      });
+        const existing = await db.cards.get(data.id);
+        showCardResult(currentCardData, existing);
+
+      } catch (err) {
+        statusDiv.innerText = "Erreur de chargement des détails.";
+        snapBtn.disabled = false;
+      }
     }
 
-    async function checkAndDisplayCard(card) {
-      currentCardData = card;
-      cameraContainer.style.display = "none";
-      snapBtn.style.display = "none";
-      selectionGrid.style.display = "none";
-      resetBtn.style.display = "block";
-      
-      var localCard = await db.cards.get(card.id) || { countNormal: 0, countReverse: 0, countHolo: 0 };
-      var totalOwned = (localCard.countNormal || 0) + (localCard.countReverse || 0) + (localCard.countHolo || 0);
+    function showCardResult(card, existing) {
+      cameraContainer.style.display = 'none';
+      snapBtn.style.display = 'none';
+      resetBtn.style.display = 'block';
+      statusDiv.innerText = "Carte identifiée !";
 
-      var imgUrl = getCardImageUrl(card);
-      var prices = card._prices || await getCardPrices(card);
+      const cNormal = existing ? (existing.countNormal || 0) : 0;
+      const cReverse = existing ? (existing.countReverse || 0) : 0;
+      const cHolo = existing ? (existing.countHolo || 0) : 0;
 
-      resultDiv.innerHTML = "";
-      
-      var img = document.createElement("img");
-      img.src = imgUrl;
-      img.alt = card.name;
+      const totalOwned = cNormal + cReverse + cHolo;
+      const badgeHtml = totalOwned > 0 
+        ? `<span class="badge badge-owned">Possédée (${totalOwned})</span>`
+        : `<span class="badge badge-new">Nouvelle carte</span>`;
 
-      var h3 = document.createElement("h3");
-      h3.style.margin = "10px 0 2px";
-      h3.textContent = card.name;
+      resultDiv.innerHTML = `
+        <img src="${card.image}" onerror="this.src='${card.image.replace('/high.png','/low.png')}'" alt="${card.name}">
+        <h3>${card.name}</h3>
+        <p style="font-size:0.8rem; color:var(--text-muted); margin: -4px 0 8px;">Ext: ${card.setCode} (#${card.localId})</p>
+        ${badgeHtml}
 
-      var pId = document.createElement("p");
-      pId.style.margin = "0";
-      pId.style.color = "var(--text-muted)";
-      pId.style.fontSize = "0.85rem";
-      pId.textContent = "Édition / ID : " + card.id;
+        <div class="price-list">
+          <div class="price-item"><span>Normal :</span><span class="val">${card.prices.normal ? card.prices.normal.toFixed(2) + ' €' : 'N/A'}</span></div>
+          <div class="price-item"><span>Reverse :</span><span class="val">${card.prices.reverse ? card.prices.reverse.toFixed(2) + ' €' : 'N/A'}</span></div>
+          <div class="price-item"><span>Holo :</span><span class="val">${card.prices.holo ? card.prices.holo.toFixed(2) + ' €' : 'N/A'}</span></div>
+        </div>
 
-      var priceBox = document.createElement("div");
-      priceBox.className = "price-box";
-      
-      var hasPrices = prices && (prices.normal.eur || prices.reverse.eur || prices.holo.eur || prices.normal.usd || prices.reverse.usd || prices.holo.usd);
+        <p style="font-size:0.8rem; font-weight:bold; margin-top:12px;">Ajouter à la collection :</p>
+        <div class="btn-group">
+          <button class="action-btn secondary" onclick="addCardVariant('normal')">+ Normal</button>
+          <button class="action-btn btn-reverse" onclick="addCardVariant('reverse')">+ Reverse</button>
+          <button class="action-btn btn-holo" onclick="addCardVariant('holo')">+ Holo</button>
+        </div>
+      `;
+      resultDiv.style.display = 'block';
+    }
 
-      if (hasPrices) {
-        var text = "Cotes estimées :\n";
-        if (prices.normal.eur || prices.normal.usd) {
-          text += "• Normal : " + (prices.normal.eur ? prices.normal.eur.toFixed(2) + " €" : "") + (prices.normal.usd ? " ($" + prices.normal.usd.toFixed(2) + ")" : "") + "\n";
-        }
-        if (prices.reverse.eur || prices.reverse.usd) {
-          text += "• Reverse : " + (prices.reverse.eur ? prices.reverse.eur.toFixed(2) + " €" : "") + (prices.reverse.usd ? " ($" + prices.reverse.usd.toFixed(2) + ")" : "") + "\n";
-        }
-        if (prices.holo.eur || prices.holo.usd) {
-          text += "• Holo : " + (prices.holo.eur ? prices.holo.eur.toFixed(2) + " €" : "") + (prices.holo.usd ? " ($" + prices.holo.usd.toFixed(2) + ")" : "");
-        }
-        priceBox.innerText = text.trim();
-      } else {
-        priceBox.style.color = "var(--text-muted)";
-        priceBox.style.borderColor = "var(--border-color)";
-        priceBox.style.background = "transparent";
-        priceBox.textContent = "Cote non disponible";
+    async function addCardVariant(variant) {
+      if (!currentCardData) return;
+
+      let card = await db.cards.get(currentCardData.id);
+
+      if (!card) {
+        card = {
+          id: currentCardData.id,
+          name: currentCardData.name,
+          localId: currentCardData.localId,
+          setCode: currentCardData.setCode,
+          image: currentCardData.image,
+          prices: currentCardData.prices,
+          countNormal: 0,
+          countReverse: 0,
+          countHolo: 0
+        };
       }
 
-      var badge = document.createElement("div");
-      badge.className = "badge " + (totalOwned > 0 ? "badge-owned" : "badge-new");
-      badge.textContent = totalOwned > 0 ? ("En possession (Total : x" + totalOwned + ")") : "Nouvelle carte !";
+      if (variant === 'normal') card.countNormal = (card.countNormal || 0) + 1;
+      if (variant === 'reverse') card.countReverse = (card.countReverse || 0) + 1;
+      if (variant === 'holo') card.countHolo = (card.countHolo || 0) + 1;
 
-      var variantBox = document.createElement("div");
-      variantBox.className = "variant-box";
-      variantBox.innerHTML = '<p style="margin:4px 0;">Normal : x' + (localCard.countNormal || 0) + '</p>' +
-                             '<p style="margin:4px 0;">Reverse : x' + (localCard.countReverse || 0) + '</p>' +
-                             '<p style="margin:4px 0;">Holo : x' + (localCard.countHolo || 0) + '</p>';
-
-      var btnGroup = document.createElement("div");
-      btnGroup.className = "btn-group";
-
-      var btnNormal = document.createElement("button");
-      btnNormal.className = "action-btn";
-      btnNormal.textContent = "+ Normal";
-      btnNormal.onclick = function() { addVariant("countNormal"); };
-
-      var btnReverse = document.createElement("button");
-      btnReverse.className = "action-btn btn-reverse";
-      btnReverse.textContent = "+ Reverse";
-      btnReverse.onclick = function() { addVariant("countReverse"); };
-
-      var btnHolo = document.createElement("button");
-      btnHolo.className = "action-btn btn-holo";
-      btnHolo.textContent = "+ Holo";
-      btnHolo.onclick = function() { addVariant("countHolo"); };
-
-      btnGroup.appendChild(btnNormal);
-      btnGroup.appendChild(btnReverse);
-      btnGroup.appendChild(btnHolo);
-
-      status.innerText = "";
-      resultDiv.style.display = "block";
+      await db.cards.put(card);
+      statusDiv.innerText = `Ajouté en version ${variant.toUpperCase()} !`;
       
-      resultDiv.appendChild(img);
-      resultDiv.appendChild(h3);
-      resultDiv.appendChild(pId);
-      resultDiv.appendChild(priceBox);
-      resultDiv.appendChild(badge);
-      resultDiv.appendChild(variantBox);
-      resultDiv.appendChild(btnGroup);
-    }
-
-    async function addVariant(variantType) {
-      if (!currentCardData) return;
-      var id = currentCardData.id;
-      var prices = currentCardData._prices || { normal: {}, reverse: {}, holo: {} };
-
-      var localCard = await db.cards.get(id) || { 
-        id: id, name: currentCardData.name, image: currentCardData.image, 
-        countNormal: 0, countReverse: 0, countHolo: 0 
-      };
-      
-      localCard.image = currentCardData.image;
-      localCard.priceEurNormal = prices.normal.eur ? Number(prices.normal.eur) : null;
-      localCard.priceEurReverse = prices.reverse.eur ? Number(prices.reverse.eur) : null;
-      localCard.priceEurHolo = prices.holo.eur ? Number(prices.holo.eur) : null;
-
-      localCard[variantType] = (localCard[variantType] || 0) + 1;
-      
-      await db.cards.put(localCard);
-      checkAndDisplayCard(currentCardData);
+      const updated = await db.cards.get(card.id);
+      showCardResult(currentCardData, updated);
     }
 
     function resetScan() {
-      clearError();
-      currentCardData = null;
-      resultDiv.style.display = "none";
-      selectionGrid.style.display = "none";
-      resetBtn.style.display = "none";
-      cameraContainer.style.display = "block";
-      snapBtn.style.display = "block";
+      resultDiv.style.display = 'none';
+      selectionGrid.style.display = 'none';
+      cameraContainer.style.display = 'block';
+      snapBtn.style.display = 'block';
+      resetBtn.style.display = 'none';
       snapBtn.disabled = false;
-      snapBtn.innerText = "Analyser la carte";
-      debugAi.innerText = "";
-      status.innerText = "Prêt !";
-      startCamera();
+      statusDiv.innerText = "Prêt !";
+      debugDiv.innerText = "";
+      currentCardData = null;
     }
 
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("sw.js");
+    async function updateQuantity(id, variant, delta) {
+      const card = await db.cards.get(id);
+      if (!card) return;
+
+      if (variant === 'normal') card.countNormal = Math.max(0, (card.countNormal || 0) + delta);
+      if (variant === 'reverse') card.countReverse = Math.max(0, (card.countReverse || 0) + delta);
+      if (variant === 'holo') card.countHolo = Math.max(0, (card.countHolo || 0) + delta);
+
+      const total = (card.countNormal || 0) + (card.countReverse || 0) + (card.countHolo || 0);
+
+      if (total === 0) {
+        await db.cards.delete(id);
+      } else {
+        await db.cards.put(card);
+      }
+
+      loadCollection();
+    }
+
+    async function removeCardCompletely(id) {
+      if (confirm("Supprimer cette carte de la collection ?")) {
+        await db.cards.delete(id);
+        loadCollection();
+      }
+    }
+
+    async function loadCollection() {
+      const listDiv = document.getElementById('collection-list');
+      const statsDiv = document.getElementById('collection-stats');
+      listDiv.innerHTML = '';
+
+      const cards = await db.cards.toArray();
+
+      let totalCards = cards.length;
+      let totalQuantity = 0;
+      let totalPrice = 0;
+
+      if (cards.length === 0) {
+        listDiv.innerHTML = '<p style="color: var(--text-muted); padding: 20px;">Votre collection est vide pour le moment.</p>';
+        statsDiv.innerHTML = `<div>Cartes : 0 | Exemplaires : 0</div><div>Valeur estimée : <span class="total-val">0.00 €</span></div>`;
+        return;
+      }
+
+      cards.forEach(card => {
+        const cNorm = card.countNormal || 0;
+        const cRev = card.countReverse || 0;
+        const cHolo = card.countHolo || 0;
+        const sum = cNorm + cRev + cHolo;
+
+        totalQuantity += sum;
+
+        const pNorm = (card.prices && card.prices.normal) ? card.prices.normal : 0;
+        const pRev = (card.prices && card.prices.reverse) ? card.prices.reverse : 0;
+        const pHolo = (card.prices && card.prices.holo) ? card.prices.holo : 0;
+
+        const cardTotalValue = (cNorm * pNorm) + (cRev * pRev) + (cHolo * pHolo);
+        totalPrice += cardTotalValue;
+
+        const div = document.createElement('div');
+        div.className = 'collection-item';
+        div.innerHTML = `
+          <img src="${card.image}" onerror="this.src='${card.image.replace('/high.png','/low.png')}'" alt="${card.name}">
+          <div class="collection-info">
+            <div class="item-header">
+              <h4>${card.name}</h4>
+              <button class="delete-btn" onclick="removeCardCompletely('${card.id}')">✕</button>
+            </div>
+            <p class="id-txt">${card.setCode} (#${card.localId})</p>
+
+            <div class="qty-row">
+              <span>Norm : ${cNorm} (${pNorm ? pNorm.toFixed(2) : '0.00'}€)</span>
+              <div class="qty-controls">
+                <button class="qty-btn" onclick="updateQuantity('${card.id}', 'normal', -1)">-</button>
+                <button class="qty-btn" onclick="updateQuantity('${card.id}', 'normal', 1)">+</button>
+              </div>
+            </div>
+
+            <div class="qty-row">
+              <span>Rev : ${cRev} (${pRev ? pRev.toFixed(2) : '0.00'}€)</span>
+              <div class="qty-controls">
+                <button class="qty-btn" onclick="updateQuantity('${card.id}', 'reverse', -1)">-</button>
+                <button class="qty-btn" onclick="updateQuantity('${card.id}', 'reverse', 1)">+</button>
+              </div>
+            </div>
+
+            <div class="qty-row">
+              <span>Holo : ${cHolo} (${pHolo ? pHolo.toFixed(2) : '0.00'}€)</span>
+              <div class="qty-controls">
+                <button class="qty-btn" onclick="updateQuantity('${card.id}', 'holo', -1)">-</button>
+                <button class="qty-btn" onclick="updateQuantity('${card.id}', 'holo', 1)">+</button>
+              </div>
+            </div>
+          </div>
+        `;
+        listDiv.appendChild(div);
+      });
+
+      statsDiv.innerHTML = `
+        <div>Cartes uniques : ${totalCards} | Exemplaires : ${totalQuantity}</div>
+        <div>Valeur estimée : <span class="total-val">${totalPrice.toFixed(2)} €</span></div>
+      `;
+    }
+
+    async function exportCollection() {
+      const cards = await db.cards.toArray();
+      const blob = new Blob([JSON.stringify(cards, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `pokemon_collection_${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    async function importCollection(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const cards = JSON.parse(e.target.result);
+          if (Array.isArray(cards)) {
+            await db.cards.bulkPut(cards);
+            alert("Collection importée avec succès !");
+            loadCollection();
+          } else {
+            alert("Format JSON invalide.");
+          }
+        } catch (err) {
+          alert("Erreur lors de la lecture du fichier JSON.");
+        }
+      };
+      reader.readAsText(file);
     }
   </script>
 </body>
