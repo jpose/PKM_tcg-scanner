@@ -8,7 +8,9 @@ export default async function handler(req, res) {
 
   try {
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) return res.status(500).json({ error: 'Clé GEMINI_API_KEY absente dans Vercel' });
+    if (!apiKey) {
+      return res.status(500).json({ error: 'Clé GEMINI_API_KEY absente dans Vercel' });
+    }
 
     let body = req.body;
     if (typeof body === 'string') {
@@ -18,14 +20,17 @@ export default async function handler(req, res) {
     const { image, base64 } = body || {};
     let rawBase64 = base64 || image;
 
-    if (!rawBase64) return res.status(400).json({ error: 'Aucune image reçue' });
+    if (!rawBase64) {
+      return res.status(400).json({ error: 'Aucune image reçue' });
+    }
 
     if (rawBase64.includes(',')) {
       rawBase64 = rawBase64.split(',')[1];
     }
     rawBase64 = rawBase64.replace(/(\r\n|\n|\r|\s)/gm, "");
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    // Ton endpoint d'origine sur la version 3.6
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6:generateContent?key=${apiKey}`;
 
     const response = await fetch(url, {
       method: 'POST',
@@ -33,7 +38,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         contents: [{
           parts: [
-            { text: "Quel est le nom de cette carte Pokémon ? Donne juste le nom." },
+            { text: "Identifie cette carte Pokémon. Donne uniquement son nom officiel en français, sans aucun autre texte." },
             {
               inline_data: {
                 mime_type: "image/jpeg",
@@ -47,22 +52,14 @@ export default async function handler(req, res) {
 
     const data = await response.json();
 
-    // On extrait le texte brut sans filtre agressif
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (rawText) {
-      // Nettoyage basique du résultat
-      const cleanedName = rawText.trim().replace(/^["']|["']$/g, '');
-      return res.status(200).json({ name: cleanedName, raw_response: rawText });
+    if (!response.ok || data.error) {
+      return res.status(400).json({ error: "Erreur Google", details: data });
     }
 
-    // Si vraiment rien n'est extrait, on renvoie la réponse brute de Google pour débugger
-    return res.status(400).json({
-      error: "Google n'a renvoyé aucun texte",
-      google_payload: data
-    });
+    const cardName = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+    return res.status(200).json({ name: cardName });
 
   } catch (err) {
-    return res.status(500).json({ error: "Erreur serveur Vercel", details: err.message });
+    return res.status(500).json({ error: "Erreur Vercel", details: err.message });
   }
 }
