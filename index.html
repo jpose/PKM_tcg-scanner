@@ -18,6 +18,7 @@
       --text-muted: #94a3b8;
       --border-color: #334155;
       --price-color: #10b981;
+      --error-color: #ef4444;
     }
 
     * { box-sizing: border-box; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
@@ -127,6 +128,19 @@
 
     #status { margin-top: 12px; font-size: 0.9rem; color: #cbd5e1; font-weight: 500; }
     #debug-ai { font-size: 0.8rem; color: #818cf8; margin-top: 4px; font-family: monospace; }
+    
+    .error-banner {
+      display: none;
+      margin-top: 12px;
+      padding: 10px 12px;
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid var(--error-color);
+      border-radius: 8px;
+      color: #fca5a5;
+      font-size: 0.8rem;
+      text-align: left;
+      word-break: break-word;
+    }
 
     #selection-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px auto; }
 
@@ -292,6 +306,7 @@
         
         <div id="status">Prêt !</div>
         <div id="debug-ai"></div>
+        <div id="error-details" class="error-banner"></div>
 
         <div id="selection-grid" style="display: none;"></div>
         <div id="result" class="card-result" style="display: none;"></div>
@@ -313,7 +328,7 @@
   </div>
 
   <footer>
-    Version du fichier générée le : <span id="build-timestamp">24/08/2026 13:55:00</span>
+    Version mise à jour le : <span id="build-timestamp">24/08/2026 16:50:00</span>
   </footer>
 
   <script>
@@ -325,23 +340,60 @@
     var resetBtn = document.getElementById("reset-btn");
     var status = document.getElementById("status");
     var debugAi = document.getElementById("debug-ai");
+    var errorDetails = document.getElementById("error-details");
     var resultDiv = document.getElementById("result");
     var selectionGrid = document.getElementById("selection-grid");
     var cameraContainer = document.getElementById("camera-container");
 
     var currentCardData = null;
+    var cameraStream = null;
 
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1280 } } })
-      .then(function(stream) { video.srcObject = stream; })
-      .catch(function(err) { status.innerText = "Erreur caméra : " + err.message; });
+    // Directement démarrer la caméra
+    startCamera();
+
+    function startCamera() {
+      if (cameraStream) return;
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1280 } } })
+        .then(function(stream) { 
+          cameraStream = stream;
+          video.srcObject = stream; 
+          status.innerText = "Prêt !";
+        })
+        .catch(function(err) { 
+          showError("Erreur d'accès caméra : " + err.message);
+        });
+    }
+
+    function stopCamera() {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(function(track) { track.stop(); });
+        cameraStream = null;
+        video.srcObject = null;
+      }
+    }
+
+    function showError(msg) {
+      status.innerText = "Erreur détectée";
+      errorDetails.innerText = msg;
+      errorDetails.style.display = "block";
+    }
+
+    function clearError() {
+      errorDetails.innerText = "";
+      errorDetails.style.display = "none";
+    }
 
     async function switchTab(tab) {
+      clearError();
       document.getElementById("tab-scan-btn").classList.toggle("active", tab === "scan");
       document.getElementById("tab-collection-btn").classList.toggle("active", tab === "collection");
       document.getElementById("view-scan").style.display = (tab === "scan") ? "block" : "none";
       document.getElementById("view-collection").style.display = (tab === "collection") ? "block" : "none";
 
-      if (tab === "collection") {
+      if (tab === "scan") {
+        startCamera();
+      } else if (tab === "collection") {
+        stopCamera();
         await renderCollection();
       }
     }
@@ -572,13 +624,22 @@
         try {
           var importedData = JSON.parse(e.target.result);
           if (!Array.isArray(importedData)) {
-            throw new Error("Format JSON invalide.");
+            throw new Error("Format de fichier invalide (doit être une liste de cartes).");
           }
 
-          if (confirm("Importer cette sauvegarde ? Les données associées à ces cartes seront mises à jour.")) {
+          // Validation renforcée des objets du JSON
+          var isValid = importedData.every(function(item) {
+            return item && typeof item === 'object' && typeof item.id === 'string' && typeof item.name === 'string';
+          });
+
+          if (!isValid) {
+            throw new Error("Le fichier contient des données de cartes corrompues ou incomplètes.");
+          }
+
+          if (confirm("Importer cette sauvegarde ? (" + importedData.length + " références)")) {
             await db.cards.bulkPut(importedData);
             await renderCollection();
-            alert("Collection importée avec succès ! (" + importedData.length + " références)");
+            alert("Collection importée avec succès !");
           }
         } catch (err) {
           alert("Erreur lors de l'importation : " + err.message);
@@ -605,44 +666,69 @@
     }
 
     snapBtn.addEventListener("click", async function() {
+      clearError();
+      
+      if (!video.videoWidth || !video.videoHeight) {
+        showError("La caméra n'est pas encore prête. Attendez une seconde et réessayez.");
+        return;
+      }
+
       snapBtn.disabled = true;
-      status.innerText = "Analyse par l'IA...";
+      status.innerText = "Analyse par l'IA Gemini...";
       debugAi.innerText = "";
 
+      // Capture photo sécurisée
       var canvas = document.createElement("canvas");
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       var ctx = canvas.getContext("2d");
-      ctx.drawImage(video, 0, 0);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-      var base64Image = canvas.toDataURL("image/jpeg", 0.8).split(",")[1];
+      var fullDataUrl = canvas.toDataURL("image/jpeg", 0.85);
+      var base64Raw = fullDataUrl.split(",")[1];
 
       try {
         var apiRes = await fetch("/api/scan", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ image: base64Image })
+          body: JSON.stringify({ image: fullDataUrl, base64: base64Raw })
         });
+
+        // Diagnostic d'erreur réseau HTTP approfondi
+        if (!apiRes.ok) {
+          var errorText = await apiRes.text();
+          var parsedError = "";
+          try {
+            var jsonErr = JSON.parse(errorText);
+            parsedError = jsonErr.error || jsonErr.message || errorText;
+          } catch(e) {
+            parsedError = errorText;
+          }
+          throw new Error("HTTP " + apiRes.status + " : " + (parsedError || "Erreur serveur /api/scan"));
+        }
 
         var apiData = await apiRes.json();
         if (apiData.error) throw new Error(apiData.error);
 
-        var cardName = apiData.name;
-        debugAi.innerText = 'IA a trouvé : "' + cardName + '"';
+        var cardName = apiData.name || apiData.cardName || apiData.result;
+        debugAi.innerText = 'IA a détecté : "' + (cardName || "Rien") + '"';
 
-        if (!cardName) {
-          status.innerText = "Carte non reconnue. Réessayez.";
+        if (!cardName || typeof cardName !== "string" || !cardName.trim()) {
+          showError("L'IA n'a pas pu lire le nom de la carte sur l'image.");
           snapBtn.disabled = false;
           return;
         }
 
-        status.innerText = 'Recherche de "' + cardName + '"...';
-        var res = await fetch("https://api.tcgdex.net/v2/fr/cards?name=" + encodeURIComponent(cardName));
+        status.innerText = 'Recherche de "' + cardName.trim() + '"...';
+        var res = await fetch("https://api.tcgdex.net/v2/fr/cards?name=" + encodeURIComponent(cardName.trim()));
+        
+        if (!res.ok) throw new Error("Erreur TCGDex (HTTP " + res.status + ")");
+
         var cards = await res.json();
         var validCards = Array.isArray(cards) ? cards.filter(function(c) { return Boolean(c.image); }) : [];
 
         if (validCards.length === 0) {
-          status.innerText = "Aucune carte trouvée.";
+          showError('Aucune carte trouvée dans la base de données pour "' + cardName + '".');
           snapBtn.disabled = false;
           return;
         }
@@ -654,21 +740,23 @@
         }
 
       } catch (err) {
-        status.innerText = "Erreur : " + err.message;
+        console.error("Scan Error:", err);
+        showError(err.message);
         snapBtn.disabled = false;
       }
     });
 
     async function fetchFullCardDetailsAndDisplay(cardId) {
-      status.innerText = "Chargement des détails et des cotes...";
+      status.innerText = "Chargement des cotes...";
       try {
         var res = await fetch("https://api.tcgdex.net/v2/fr/cards/" + cardId);
-        var fullCard = await res.json();
+        if (!res.ok) throw new Error("Impossible de charger les détails de la carte");
         
+        var fullCard = await res.json();
         fullCard._prices = await getCardPrices(fullCard);
         checkAndDisplayCard(fullCard);
       } catch (e) {
-        status.innerText = "Erreur lors du chargement de la carte.";
+        showError("Erreur : " + e.message);
       }
     }
 
@@ -810,7 +898,8 @@
     async function addVariant(variantType) {
       if (!currentCardData) return;
       var id = currentCardData.id;
-      var prices = currentCardData._prices || await getCardPrices(currentCardData);
+      // Re-utilise la valeur mise en cache
+      var prices = currentCardData._prices || { normal: {}, reverse: {}, holo: {} };
 
       var localCard = await db.cards.get(id) || { 
         id: id, name: currentCardData.name, image: currentCardData.image, 
@@ -829,6 +918,7 @@
     }
 
     function resetScan() {
+      clearError();
       currentCardData = null;
       resultDiv.style.display = "none";
       selectionGrid.style.display = "none";
@@ -838,6 +928,7 @@
       snapBtn.disabled = false;
       debugAi.innerText = "";
       status.innerText = "Prêt !";
+      startCamera();
     }
 
     if ("serviceWorker" in navigator) {
