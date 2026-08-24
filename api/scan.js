@@ -21,7 +21,7 @@ export default async function handler(req, res) {
     let rawBase64 = base64 || image;
 
     if (!rawBase64) {
-      return res.status(400).json({ error: 'Aucune image reçue' });
+      return res.status(400).json({ error: 'Aucune image reçue dans la requête' });
     }
 
     if (rawBase64.includes(',')) {
@@ -29,7 +29,6 @@ export default async function handler(req, res) {
     }
     rawBase64 = rawBase64.replace(/(\r\n|\n|\r|\s)/gm, "");
 
-    // Ton endpoint d'origine sur la version 3.6
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6:generateContent?key=${apiKey}`;
 
     const response = await fetch(url, {
@@ -52,14 +51,19 @@ export default async function handler(req, res) {
 
     const data = await response.json();
 
+    // Si Google renvoie une erreur (400, 429, 403...), on transmet tout le détail
     if (!response.ok || data.error) {
-      return res.status(400).json({ error: "Erreur Google", details: data });
+      return res.status(response.status).json({
+        http_code: response.status,
+        message: "Erreur renvoyée par l'API Google",
+        erreur_google: data.error || data
+      });
     }
 
     const cardName = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
     return res.status(200).json({ name: cardName });
 
   } catch (err) {
-    return res.status(500).json({ error: "Erreur Vercel", details: err.message });
+    return res.status(500).json({ error: "Erreur serveur Vercel", details: err.message });
   }
 }
