@@ -52,7 +52,7 @@
     /* Styles de la Collection */
     .collection-stats { background: white; padding: 12px; border-radius: 8px; font-weight: bold; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
     .collection-item { background: white; border-radius: 10px; padding: 12px; margin-bottom: 12px; display: flex; gap: 12px; align-items: center; text-align: left; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-    .collection-item img { width: 70px; border-radius: 6px; }
+    .collection-item img { width: 70px; height: 98px; object-fit: cover; border-radius: 6px; }
     .collection-info { flex: 1; }
     .collection-info h4 { margin: 0 0 4px 0; font-size: 0.95rem; }
     .collection-info p { margin: 2px 0; font-size: 0.75rem; color: #4b5563; }
@@ -98,7 +98,8 @@
 
   <script>
     const db = new Dexie('TCGCollection');
-    db.version(2).stores({ cards: 'id, name, countNormal, countReverse, countHolo' });
+    // Version 3 de la BDD pour inclure le champ image
+    db.version(3).stores({ cards: 'id, name, image, countNormal, countReverse, countHolo' });
 
     const video = document.getElementById('video');
     const snapBtn = document.getElementById('snap-btn');
@@ -134,7 +135,7 @@
       
       const allCards = await db.cards.toArray();
       
-      // Filtrer pour ne garder que les cartes avec au moins 1 exemplaire
+      // Filtrer les cartes possédées
       const ownedCards = allCards.filter(c => (c.countNormal || 0) + (c.countReverse || 0) + (c.countHolo || 0) > 0);
 
       let totalCardsCount = 0;
@@ -152,9 +153,8 @@
       listContainer.innerHTML = '';
       
       ownedCards.forEach(card => {
-        const setID = card.id.split('-')[0];
-        const cardNum = card.id.split('-')[1];
-        const imgUrl = `https://assets.tcgdex.net/fr/${setID}/${cardNum}/low.png`;
+        // Utilisation prioritaire de l'image stockée ou fallback
+        const imgUrl = card.image ? `${card.image}/low.png` : 'https://via.placeholder.com/70x98?text=No+Img';
 
         const div = document.createElement('div');
         div.className = 'collection-item';
@@ -293,9 +293,14 @@
       if (!currentCardData) return;
       const id = currentCardData.id;
       const name = currentCardData.name;
+      const image = currentCardData.image; // Récupère l'URL de l'image de la carte
 
-      const localCard = await db.cards.get(id) || { id: id, name: name, countNormal: 0, countReverse: 0, countHolo: 0 };
+      const localCard = await db.cards.get(id) || { id: id, name: name, image: image, countNormal: 0, countReverse: 0, countHolo: 0 };
+      
+      // Mise à jour de l'image au cas où elle n'était pas enregistrée
+      localCard.image = image;
       localCard[variantType] = (localCard[variantType] || 0) + 1;
+      
       await db.cards.put(localCard);
 
       checkAndDisplayCard(currentCardData);
