@@ -165,6 +165,7 @@
       font-weight: 600;
       line-height: 1.5;
       text-align: left;
+      white-space: pre-line;
     }
 
     .badge {
@@ -313,7 +314,7 @@
   </div>
 
   <footer>
-    Version du fichier générée le : <span id="build-timestamp">24/08/2026 13:55:00</span>
+    Version du fichier : 24/08/2026
   </footer>
 
   <script>
@@ -348,77 +349,10 @@
 
     function getCardImageUrl(card) {
       if (card && card.image) {
-        if (card.image.endsWith(".png") || card.image.endsWith(".jpg")) {
-          return card.image;
-        }
+        if (card.image.endsWith(".png") || card.image.endsWith(".jpg")) return card.image;
         return card.image + "/low.png";
       }
-      return "https://via.placeholder.com/75x105/1e293b/94a3b8?text=No+Img";
-    }
-
-    async function getCardPrices(card) {
-      var prices = {
-        normal: { eur: null, usd: null },
-        reverse: { eur: null, usd: null },
-        holo: { eur: null, usd: null }
-      };
-
-      if (card && card.pricing) {
-        if (card.pricing.cardmarket) {
-          var cm = card.pricing.cardmarket;
-          prices.normal.eur = cm.trend || cm.avg || null;
-          prices.holo.eur = cm['trend-holo'] || cm['avg-holo'] || null;
-          prices.reverse.eur = cm['trend-reverse'] || cm['avg-reverse'] || prices.holo.eur || prices.normal.eur;
-        }
-        if (card.pricing.tcgplayer) {
-          var tp = card.pricing.tcgplayer;
-          if (tp.normal) prices.normal.usd = tp.normal.marketPrice || tp.normal.midPrice || null;
-          if (tp.holofoil) prices.holo.usd = tp.holofoil.marketPrice || tp.holofoil.midPrice || null;
-          if (tp['reverse-holofoil']) prices.reverse.usd = tp['reverse-holofoil'].marketPrice || tp['reverse-holofoil'].midPrice || null;
-        }
-      }
-
-      if (prices.normal.eur || prices.holo.eur || prices.normal.usd || prices.holo.usd) {
-        return prices;
-      }
-
-      try {
-        var rawNum = card.localId || (card.id ? card.id.split('-').pop() : null);
-        var num = rawNum ? parseInt(rawNum, 10) : null;
-
-        if (num && !isNaN(num)) {
-          var res = await fetch("https://api.pokemontcg.io/v2/cards?q=number:" + num);
-          if (res.ok) {
-            var data = await res.json();
-            if (data && data.data && data.data.length > 0) {
-              var matched = data.data.find(function(c) {
-                if (!c.set || !card.set) return false;
-                var cSet = (c.set.id || "").toLowerCase();
-                var cardSet = (card.set.id || "").toLowerCase();
-                return cSet === cardSet || c.set.name.toLowerCase().includes((card.set.name || "").toLowerCase());
-              }) || data.data[0];
-
-              if (matched.cardmarket && matched.cardmarket.prices) {
-                var cmp = matched.cardmarket.prices;
-                prices.normal.eur = cmp.trendPrice || cmp.averageSellPrice || null;
-                prices.reverse.eur = cmp.reverseHoloTrend || cmp.reverseHoloAvg || prices.normal.eur;
-                prices.holo.eur = cmp.trendPrice || cmp.averageSellPrice || null;
-              }
-
-              if (matched.tcgplayer && matched.tcgplayer.prices) {
-                var tpp = matched.tcgplayer.prices;
-                if (tpp.normal) prices.normal.usd = tpp.normal.marketPrice || tpp.normal.midPrice || null;
-                if (tpp.reverseHolofoil) prices.reverse.usd = tpp.reverseHolofoil.marketPrice || tpp.reverseHolofoil.midPrice || null;
-                if (tpp.holofoil) prices.holo.usd = tpp.holofoil.marketPrice || tpp.holofoil.midPrice || null;
-              }
-            }
-          }
-        }
-      } catch (err) {
-        console.warn("Erreur chargement cote fallback :", err);
-      }
-
-      return prices;
+      return "https://via.placeholder.com/150x210/1e293b/94a3b8?text=Image+Indisponible";
     }
 
     async function renderCollection() {
@@ -542,7 +476,7 @@
       try {
         var allCards = await db.cards.toArray();
         if (allCards.length === 0) {
-          alert("Votre collection est vide, rien à exporter !");
+          alert("Votre collection est vide !");
           return;
         }
 
@@ -559,7 +493,7 @@
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
       } catch (err) {
-        alert("Erreur lors de l'exportation : " + err.message);
+        alert("Erreur d'exportation : " + err.message);
       }
     }
 
@@ -571,17 +505,15 @@
       reader.onload = async function(e) {
         try {
           var importedData = JSON.parse(e.target.result);
-          if (!Array.isArray(importedData)) {
-            throw new Error("Format JSON invalide.");
-          }
+          if (!Array.isArray(importedData)) throw new Error("Format JSON invalide.");
 
-          if (confirm("Importer cette sauvegarde ? Les données associées à ces cartes seront mises à jour.")) {
+          if (confirm("Importer cette sauvegarde ?")) {
             await db.cards.bulkPut(importedData);
             await renderCollection();
-            alert("Collection importée avec succès ! (" + importedData.length + " références)");
+            alert("Collection importée ! (" + importedData.length + " références)");
           }
         } catch (err) {
-          alert("Erreur lors de l'importation : " + err.message);
+          alert("Erreur d'importation : " + err.message);
         } finally {
           event.target.value = "";
         }
@@ -598,7 +530,7 @@
     }
 
     async function deleteCardFromCollection(cardId) {
-      if (confirm("Supprimer cette carte de votre collection ?")) {
+      if (confirm("Supprimer cette carte ?")) {
         await db.cards.delete(cardId);
         await renderCollection();
       }
@@ -636,7 +568,7 @@
           return;
         }
 
-        status.innerText = 'Recherche de "' + cardName + '"...';
+        status.innerText = 'Recherche TCGdex pour "' + cardName + '"...';
         var res = await fetch("https://api.tcgdex.net/v2/fr/cards?name=" + encodeURIComponent(cardName));
         var cards = await res.json();
         var validCards = Array.isArray(cards) ? cards.filter(function(c) { return Boolean(c.image); }) : [];
@@ -660,15 +592,13 @@
     });
 
     async function fetchFullCardDetailsAndDisplay(cardId) {
-      status.innerText = "Chargement des détails et des cotes...";
+      status.innerText = "Chargement des détails...";
       try {
         var res = await fetch("https://api.tcgdex.net/v2/fr/cards/" + cardId);
         var fullCard = await res.json();
-        
-        fullCard._prices = await getCardPrices(fullCard);
         checkAndDisplayCard(fullCard);
       } catch (e) {
-        status.innerText = "Erreur lors du chargement de la carte.";
+        status.innerText = "Erreur lors du chargement des détails.";
       }
     }
 
@@ -680,7 +610,7 @@
       selectionGrid.style.display = "grid";
       selectionGrid.innerHTML = "";
 
-      cards.slice(0, 20).forEach(function(card) {
+      cards.slice(0, 16).forEach(function(card) {
         var imgUrl = getCardImageUrl(card);
         var div = document.createElement("div");
         div.className = "card-choice";
@@ -721,7 +651,6 @@
       var totalOwned = (localCard.countNormal || 0) + (localCard.countReverse || 0) + (localCard.countHolo || 0);
 
       var imgUrl = getCardImageUrl(card);
-      var prices = card._prices || await getCardPrices(card);
 
       resultDiv.innerHTML = "";
       
@@ -737,31 +666,7 @@
       pId.style.margin = "0";
       pId.style.color = "var(--text-muted)";
       pId.style.fontSize = "0.85rem";
-      pId.textContent = "Édition / ID : " + card.id;
-
-      var priceBox = document.createElement("div");
-      priceBox.className = "price-box";
-      
-      var hasPrices = prices && (prices.normal.eur || prices.reverse.eur || prices.holo.eur || prices.normal.usd || prices.reverse.usd || prices.holo.usd);
-
-      if (hasPrices) {
-        var text = "Cotes estimées :\n";
-        if (prices.normal.eur || prices.normal.usd) {
-          text += "• Normal : " + (prices.normal.eur ? prices.normal.eur.toFixed(2) + " €" : "") + (prices.normal.usd ? " ($" + prices.normal.usd.toFixed(2) + ")" : "") + "\n";
-        }
-        if (prices.reverse.eur || prices.reverse.usd) {
-          text += "• Reverse : " + (prices.reverse.eur ? prices.reverse.eur.toFixed(2) + " €" : "") + (prices.reverse.usd ? " ($" + prices.reverse.usd.toFixed(2) + ")" : "") + "\n";
-        }
-        if (prices.holo.eur || prices.holo.usd) {
-          text += "• Holo : " + (prices.holo.eur ? prices.holo.eur.toFixed(2) + " €" : "") + (prices.holo.usd ? " ($" + prices.holo.usd.toFixed(2) + ")" : "");
-        }
-        priceBox.innerText = text.trim();
-      } else {
-        priceBox.style.color = "var(--text-muted)";
-        priceBox.style.borderColor = "var(--border-color)";
-        priceBox.style.background = "transparent";
-        priceBox.textContent = "Cote non disponible";
-      }
+      pId.textContent = "ID : " + card.id;
 
       var badge = document.createElement("div");
       badge.className = "badge " + (totalOwned > 0 ? "badge-owned" : "badge-new");
@@ -801,7 +706,6 @@
       resultDiv.appendChild(img);
       resultDiv.appendChild(h3);
       resultDiv.appendChild(pId);
-      resultDiv.appendChild(priceBox);
       resultDiv.appendChild(badge);
       resultDiv.appendChild(variantBox);
       resultDiv.appendChild(btnGroup);
@@ -810,7 +714,6 @@
     async function addVariant(variantType) {
       if (!currentCardData) return;
       var id = currentCardData.id;
-      var prices = currentCardData._prices || await getCardPrices(currentCardData);
 
       var localCard = await db.cards.get(id) || { 
         id: id, name: currentCardData.name, image: currentCardData.image, 
@@ -818,10 +721,6 @@
       };
       
       localCard.image = currentCardData.image;
-      localCard.priceEurNormal = prices.normal.eur ? Number(prices.normal.eur) : null;
-      localCard.priceEurReverse = prices.reverse.eur ? Number(prices.reverse.eur) : null;
-      localCard.priceEurHolo = prices.holo.eur ? Number(prices.holo.eur) : null;
-
       localCard[variantType] = (localCard[variantType] || 0) + 1;
       
       await db.cards.put(localCard);
