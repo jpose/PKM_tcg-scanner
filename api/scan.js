@@ -21,7 +21,7 @@ export default async function handler(req, res) {
     let rawBase64 = base64 || image;
 
     if (!rawBase64) {
-      return res.status(400).json({ error: 'Aucune donnée d image reçue (champs base64/image vides)' });
+      return res.status(400).json({ error: 'Aucune donnée d image reçue' });
     }
 
     if (rawBase64.includes(',')) {
@@ -29,8 +29,8 @@ export default async function handler(req, res) {
     }
     rawBase64 = rawBase64.replace(/(\r\n|\n|\r)/gm, "").trim();
 
-    // Test direct sur gemini-1.5-flash
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    // Utilisation de l'API v1 stable avec gemini-1.5-flash
+    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
     const response = await fetch(url, {
       method: 'POST',
@@ -38,7 +38,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         contents: [{
           parts: [
-            { text: "Identifie cette carte Pokémon. Donne uniquement son NOM officiel en français." },
+            { text: "Identifie cette carte Pokémon. Donne uniquement son NOM officiel en français, sans aucun autre texte." },
             {
               inline_data: {
                 mime_type: "image/jpeg",
@@ -52,10 +52,9 @@ export default async function handler(req, res) {
 
     const data = await response.json();
 
-    // Renvoie la réponse brute de Google (avec son code d'erreur réel)
     if (!response.ok || data.error) {
       return res.status(response.status || 400).json({
-        error: "Erreur brute renvoyée par Google Gemini",
+        error: "Erreur Google Gemini",
         google_http_status: response.status,
         google_response: data
       });
