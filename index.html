@@ -7,7 +7,6 @@
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#3b82f6">
 
-  <!-- Dexie.js (BDD locale) & Tesseract.js (OCR) -->
   <script src="https://unpkg.com/dexie@latest/dist/dexie.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 
@@ -20,13 +19,12 @@
     .camera-box { position: relative; width: 100%; max-width: 400px; margin: 0 auto; background: #000; border-radius: 12px; overflow: hidden; }
     video { width: 100%; display: block; }
     
-    /* Rectangle de visée pour cibler le nom */
     .target-overlay {
       position: absolute;
-      top: 10%;
-      left: 10%;
-      width: 80%;
-      height: 20%;
+      top: 8%;
+      left: 5%;
+      width: 90%;
+      height: 18%;
       border: 2px dashed #ef4444;
       border-radius: 6px;
       box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4);
@@ -40,14 +38,13 @@
     button:disabled { background: #9ca3af; }
     
     #status { margin-top: 12px; font-size: 0.9rem; color: #4b5563; font-weight: 500; }
+    #debug-ocr { font-size: 0.75rem; color: #dc2626; margin-top: 4px; font-family: monospace; }
     
-    /* Grille de choix d'édition */
     #selection-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 400px; margin: 16px auto; }
     .card-choice { background: white; padding: 8px; border-radius: 8px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
     .card-choice img { width: 100%; border-radius: 4px; }
     .card-choice p { margin: 8px 0 0; font-size: 0.75rem; font-weight: bold; color: #374151; word-break: break-all; }
 
-    /* Fiche résultat */
     .card-result { margin-top: 16px; padding: 16px; background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); display: inline-block; width: 100%; max-width: 400px; }
     .card-result img { max-width: 180px; border-radius: 8px; }
     .badge { display: inline-block; padding: 4px 12px; border-radius: 9999px; font-weight: bold; margin-top: 8px; }
@@ -62,7 +59,7 @@
 <body>
 
   <h1>Scanner de cartes TCG</h1>
-  <p class="instructions" id="instructions">Cadre le NOM de la carte dans le rectangle rouge</p>
+  <p class="instructions">Mets le TITRE de la carte bien à plat dans le cadre</p>
 
   <div class="camera-box" id="camera-container">
     <video id="video" autoplay playsinline></video>
@@ -72,64 +69,106 @@
   <button id="snap-btn">Photographier la carte</button>
   <button id="reset-btn" class="secondary" style="display: none;" onclick="resetScan()">Scanner une autre carte</button>
   
-  <div id="status">Chargement de la caméra...</div>
+  <div id="status">Initialisation...</div>
+  <div id="debug-ocr"></div>
 
-  <!-- Selection d'édition -->
   <div id="selection-grid" style="display: none;"></div>
-
-  <!-- Résultat et finitions -->
   <div id="result" class="card-result" style="display: none;"></div>
 
   <script>
-    // BDD IndexedDB avec versionning pour les finitions
     const db = new Dexie('TCGCollection');
-    db.version(2).stores({ 
-      cards: 'id, name, countNormal, countReverse, countHolo' 
-    });
+    db.version(2).stores({ cards: 'id, name, countNormal, countReverse, countHolo' });
 
     const video = document.getElementById('video');
     const snapBtn = document.getElementById('snap-btn');
     const resetBtn = document.getElementById('reset-btn');
     const status = document.getElementById('status');
+    const debugOcr = document.getElementById('debug-ocr');
     const resultDiv = document.getElementById('result');
     const selectionGrid = document.getElementById('selection-grid');
     const cameraContainer = document.getElementById('camera-container');
 
+    let worker = null;
     let currentCardData = null;
 
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } } })
-      .then(stream => { video.srcObject = stream; status.innerText = 'Prêt à scanner !'; })
+    // Prépare Tesseract en tâche de fond pour accélérer le scan
+    (async () => {
+      try {
+        worker = await Tesseract.createWorker('fra');
+        status.innerText = 'Prêt à scanner !';
+      } catch(e) {
+        status.innerText = 'Erreur initialisation OCR : ' + e.message;
+      }
+    })();
+
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 } } })
+      .then(stream => { video.srcObject = stream; })
       .catch(err => { status.innerText = 'Erreur caméra : ' + err.message; });
 
     snapBtn.addEventListener('click', async () => {
-      snapBtn.disabled = true;
-      status.innerText = 'Analyse de la zone du nom...';
+      if (!worker) {
+        status.innerText = 'OCR non disponible, réessayez...';
+        return;
+      }
 
+      snapBtn.disabled = true;
+      status.innerText = 'Traitement de l\'image...';
+      debugOcr.innerText = '';
+
+      // Canvas pour découper et traiter la zone du nom
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
-      const cropX = video.videoWidth * 0.10;
-      const cropY = video.videoHeight * 0.10;
-      const cropWidth = video.videoWidth * 0.80;
-      const cropHeight = video.videoHeight * 0.20;
+      
+      const cropX = video.videoWidth * 0.05;
+      const cropY = video.videoHeight * 0.08;
+      const cropWidth = video.videoWidth * 0.90;
+      const cropHeight = video.videoHeight * 0.18;
 
       canvas.width = cropWidth;
       canvas.height = cropHeight;
       ctx.drawImage(video, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
 
-      try {
-        const { data: { text } } = await Tesseract.recognize(canvas, 'fra+eng');
-        const cleanedName = text.replace(/[^a-zA-Zà-ÿÀ-Ÿ\s-]/g, '').trim().split('\n')[0];
+      // Pré-traitement : Augmentation du contraste et Binarisation (Noir & Blanc)
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const d = imgData.data;
+      for (let i = 0; i < d.length; i += 4) {
+        // Niveau de gris
+        const v = 0.2126 * d[i] + 0.7152 * d[i+1] + 0.0722 * d[i+2];
+        // Seuil noir/blanc agressif pour détacher le texte du fond
+        const bw = v > 130 ? 255 : 0;
+        d[i] = d[i+1] = d[i+2] = bw;
+      }
+      ctx.putImageData(imgData, 0, 0);
 
-        if (!cleanedName || cleanedName.length < 3) {
-          status.innerText = 'Texte illisible. Cadre bien le NOM dans le rectangle.';
+      try {
+        status.innerText = 'Lecture du nom...';
+        const { data: { text } } = await worker.recognize(canvas);
+        
+        // Nettoyage agressif des caractères parasites
+        const rawText = text.replace(/[^a-zA-Zà-ÿÀ-Ÿ\s-]/g, ' ').trim();
+        const words = rawText.split(/\s+/).filter(w => w.length > 2);
+        const cleanedName = words.slice(0, 3).join(' ');
+
+        debugOcr.innerText = `Lu par l'OCR : "${cleanedName}"`;
+
+        if (!cleanedName || cleanedName.length < 2) {
+          status.innerText = 'Texte non reconnu. Rapprochez la carte et évitez les reflets.';
           snapBtn.disabled = false;
           return;
         }
 
         status.innerText = `Recherche de "${cleanedName}"...`;
 
-        const response = await fetch(`https://api.tcgdex.net/v2/fr/cards?name=${encodeURIComponent(cleanedName)}`);
-        const cards = await response.json();
+        // Test 1 : Recherche avec le texte nettoyé
+        let res = await fetch(`https://api.tcgdex.net/v2/fr/cards?name=${encodeURIComponent(cleanedName)}`);
+        let cards = await res.json();
+
+        // Test 2 : Si échec, tentative sur le premier mot significatif (ex: "Dracaufeu" si l'OCR a manqué la suite)
+        if ((!cards || cards.length === 0) && words.length > 0) {
+          status.innerText = `Recherche secondaire sur "${words[0]}"...`;
+          res = await fetch(`https://api.tcgdex.net/v2/fr/cards?name=${encodeURIComponent(words[0])}`);
+          cards = await res.json();
+        }
 
         const validCards = Array.isArray(cards) ? cards.filter(c => c.image) : [];
 
@@ -152,7 +191,7 @@
     });
 
     function showEditionSelection(cards) {
-      status.innerText = `${cards.length} éditions trouvées. Tape sur la tienne :`;
+      status.innerText = `${cards.length} cartes trouvées. Sélectionne la bonne :`;
       cameraContainer.style.display = 'none';
       snapBtn.style.display = 'none';
       resetBtn.style.display = 'block';
@@ -164,7 +203,8 @@
         div.className = 'card-choice';
         div.innerHTML = `
           <img src="${card.image}/low.png" alt="${card.name}" loading="lazy">
-          <p>${card.id}</p>
+          <p>${card.name}</p>
+          <p style="color:#6b7280; font-weight:normal;">${card.id}</p>
         `;
         div.onclick = () => {
           selectionGrid.style.display = 'none';
@@ -211,22 +251,13 @@
 
     async function addVariant(variantType) {
       if (!currentCardData) return;
-
       const id = currentCardData.id;
       const name = currentCardData.name;
 
-      const localCard = await db.cards.get(id) || { 
-        id: id, 
-        name: name, 
-        countNormal: 0, 
-        countReverse: 0, 
-        countHolo: 0 
-      };
-
+      const localCard = await db.cards.get(id) || { id: id, name: name, countNormal: 0, countReverse: 0, countHolo: 0 };
       localCard[variantType] = (localCard[variantType] || 0) + 1;
       await db.cards.put(localCard);
 
-      // Rafraîchit l'affichage avec la nouvelle quantité
       checkAndDisplayCard(currentCardData);
     }
 
@@ -238,6 +269,7 @@
       cameraContainer.style.display = 'block';
       snapBtn.style.display = 'block';
       snapBtn.disabled = false;
+      debugOcr.innerText = '';
       status.innerText = 'Prêt à scanner !';
     }
 
