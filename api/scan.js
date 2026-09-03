@@ -20,13 +20,13 @@ export default async function handler(req, res) {
 
     if (availableKeys.length === 0) {
       return res.status(500).json({ 
-        error: 'Aucune clé GEMINI_API_KEY_1 ou GEMINI_API_KEY_2 configurée dans Vercel.' 
+        error: 'Aucune clé API configurée dans Vercel.' 
       });
     }
 
     const keysToTry = availableKeys.sort(() => Math.random() - 0.5);
 
-    // 2. MODÈLES GEMINI
+    // 2. MODÈLES
     const modelsToTry = [
       'gemini-flash-latest',
       'gemini-2.5-flash',
@@ -36,10 +36,10 @@ export default async function handler(req, res) {
     const base64 = image.split(',')[1] || image;
     const mimeType = image.match(/data:(.*?);/)?.[1] || 'image/jpeg';
 
-    const prompt = `Tu es un expert Pokémon. Analyse cette carte et renvoie UNIQUEMENT un objet JSON valide avec ces 3 clés :
-    - "fr": Le nom de la carte en français.
-    - "en": Le nom de la carte en anglais (très important).
-    - "num": Le numéro de la carte (ex: "25" si "025/185"). S'il n'y a pas de numéro, mets "".`;
+    const prompt = `Tu es un scanner de cartes Pokémon. Regarde cette photo de carte et renvoie EXCLUSIVEMENT un objet JSON avec ces clés :
+    - "fr": Nom du Pokémon en Français (ex: "Rattata", "Pikachu").
+    - "en": Nom du Pokémon en Anglais (ex: "Rattata", "Pikachu").
+    - "num": Le numéro de la carte inscrit en bas à droite ou à gauche (ex: "19", "066", "SWSH039"). Ne mets PAS le total (pas de /185). Si aucun numéro visible, mets "".`;
 
     let rawResultText = null;
     let lastError = null;
@@ -82,73 +82,80 @@ export default async function handler(req, res) {
           }
         } catch (err) {
           lastError = err;
-          console.warn(`Échec (${model}): ${err.message}`);
         }
       }
     }
 
     if (!rawResultText) {
       return res.status(502).json({ 
-        error: `Erreur Gemini : ${lastError?.message || 'Aucune réponse reçue.'}` 
+        error: `Erreur d'analyse IA : ${lastError?.message || 'Pas de réponse.'}` 
       });
     }
 
-    // 4. PARSING JSON
+    // 4. PARSING DU JSON
     let cardData = {};
     try {
       cardData = JSON.parse(rawResultText);
     } catch (e) {
-      return res.status(500).json({ error: 'Réponse Gemini non lisible en JSON.' });
+      return res.status(500).json({ error: 'Lecture JSON impossible.' });
     }
 
-    const nomEn = cardData.en || '';
-    const nomFr = cardData.fr || nomEn;
-    let num = cardData.num || '';
+    const nomEn = (cardData.en || '').trim();
+    const nomFr = (cardData.fr || nomEn).trim();
+    let num = (cardData.num || '').trim();
 
-    let cleanNum = num.includes('/') ? num.split('/')[0] : num;
-    cleanNum = cleanNum.replace(/^0+/, '').trim();
+    if (num.includes('/')) {
+      num = num.split('/')[0].trim();
+    }
+    const cleanNum = num.replace(/^0+/, '');
 
-    // 5. RECHERCHE MULTIPLE SUR POKÉMON TCG
+    // 5. RECHERCHE EN CASCADE SUR POKÉMON TCG
     let cardsFound = [];
 
-    if (nomEn || cleanNum) {
+    const fetchTcg = async (query) => {
       try {
-        let queryStr = '';
-        if (cleanNum && nomEn) {
-          const cleanName = nomEn.replace(/[^a-zA-Z0-9 ]/g, '').trim();
-          queryStr = `number:"${cleanNum}" name:"*${cleanName}*"`;
-        } else if (cleanNum) {
-          queryStr = `number:"${cleanNum}"`;
-        } else if (nomEn) {
-          const cleanName = nomEn.replace(/[^a-zA-Z0-9 ]/g, '').trim();
-          queryStr = `name:"*${cleanName}*"`;
-        }
-
-        let tcgRes = await fetch(
-          `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(queryStr)}&pageSize=10`,
+        const res = await fetch(
+          `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(query)}&pageSize=12`,
           { signal: AbortSignal.timeout(6000) }
         );
-
-        let tcgData = await tcgRes.json();
-        cardsFound = tcgData.data || [];
-
-        // Fallback si rien trouvé avec la combinaison numéro + nom
-        if (cardsFound.length === 0 && nomEn) {
-          const cleanName = nomEn.replace(/[^a-zA-Z0-9 ]/g, '').trim();
-          tcgRes = await fetch(
-            `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(`name:"*${cleanName}*"`)}&pageSize=10`,
-            { signal: AbortSignal.timeout(6000) }
-          );
-          tcgData = await tcgRes.json();
-          cardsFound = tcgData.data || [];
+        if (res.ok) {
+          const data = await res.json();
+          return data.data || [];
         }
-      } catch (tcgErr) {
-        console.warn('API Pokémon TCG erreur :', tcgErr.message);
+      } catch (e) {
+        console.warn('Erreur TCG Fetch:', e.message);
       }
+      return [];
+    };
+
+    const cleanName = nomEn.replace(/[^a-zA-Z0-9 ]/g, '').trim();
+
+    // Étape A: Nom + Numéro
+    if (cleanName && cleanNum) {
+      cardsFound = await fetchTcg(`name:"${cleanName}" number:"${cleanNum}"`);
     }
 
-    // 6. FORMATAGE DE TOUTES LES CARTES TROUVÉES
-    const candidates = cardsFound.slice(0, 6).map(c => {
+    // Étape B: Nom seul si rien trouvé
+    if (cardsFound.length === 0 && cleanName) {
+      cardsFound = await fetchTcg(`name:"${cleanName}"`);
+    }
+
+    // Étape C: Numéro seul si toujours rien trouvé
+    if (cardsFound.length === 0 && cleanNum) {
+      cardsFound = await fetchTcg(`number:"${cleanNum}"`);
+    }
+
+    // Si vraiment rien n'est trouvé
+    if (cardsFound.length === 0) {
+      return res.status(200).json({
+        detectedName: nomFr,
+        detectedNum: cleanNum,
+        candidates: []
+      });
+    }
+
+    // 6. FORMATAGE DES RÉSULTATS
+    const candidates = cardsFound.slice(0, 8).map(c => {
       let price = 0;
       if (c.cardmarket?.prices) {
         const cm = c.cardmarket.prices;
