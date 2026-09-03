@@ -17,7 +17,6 @@ export default async function handler(req, res) {
     const key1 = process.env.GEMINI_API_KEY_1;
     const key2 = process.env.GEMINI_API_KEY_2;
     
-    // Récupération des clés disponibles
     const availableKeys = [key1, key2].filter(Boolean);
 
     if (availableKeys.length === 0) {
@@ -26,7 +25,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // Mélange aléatoire des clés pour répartir la charge (50/50)
+    // Mélange aléatoire pour répartir la charge (50/50)
     const keysToTry = availableKeys.sort(() => Math.random() - 0.5);
 
     const base64 = image.split(',')[1] || image;
@@ -37,13 +36,14 @@ export default async function handler(req, res) {
     - "en": Le nom de la carte en anglais (très important).
     - "num": Le numéro de la carte (ex: "25" si "025/185"). S'il n'y a pas de numéro, mets "".`;
 
-    // 2. EXÉCUTION DE LA REQUÊTE GEMINI AVEC RETRY/FALLBACK
+    // 2. EXÉCUTION DE LA REQUÊTE GEMINI (API REST v1)
     let rawResultText = null;
     let lastError = null;
 
     for (const apiKey of keysToTry) {
       try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+        // Endpoint REST v1 de Google
+        const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
         const geminiRes = await fetch(url, {
           method: 'POST',
@@ -56,11 +56,11 @@ export default async function handler(req, res) {
               ]
             }],
             generationConfig: {
-              response_mime_type: 'application/json', // Force le retour JSON direct
+              responseMimeType: 'application/json', // Syntaxe v1
               temperature: 0.1
             }
           }),
-          signal: AbortSignal.timeout(8000) // Timeout de 8s par tentative
+          signal: AbortSignal.timeout(8000)
         });
 
         if (!geminiRes.ok) {
@@ -72,11 +72,11 @@ export default async function handler(req, res) {
         rawResultText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
 
         if (rawResultText) {
-          break; // Succès ! On sort de la boucle de fallback
+          break; // Succès ! On sort de la boucle de secours
         }
       } catch (err) {
         lastError = err;
-        console.warn(`Échec avec une clé Gemini, tentative avec la clé suivante... (${err.message})`);
+        console.warn(`Échec clé Gemini (v1): ${err.message}`);
       }
     }
 
@@ -98,7 +98,7 @@ export default async function handler(req, res) {
     const nomFr = cardData.fr || nomEn;
     let num = cardData.num || '';
 
-    // Nettoyage du numéro (ex: "025/185" -> "25")
+    // Nettoyage du numéro de carte
     if (num.includes('/')) {
       num = num.split('/')[0].replace(/^0+/, '');
     } else {
@@ -112,7 +112,6 @@ export default async function handler(req, res) {
       try {
         let q = [];
         if (nomEn) {
-          // Nettoyage des caractères spéciaux pour éviter les erreurs de requête
           const cleanName = nomEn.replace(/[^a-zA-Z0-9 ]/g, '').trim();
           if (cleanName) q.push(`name:"*${cleanName}*"`);
         }
@@ -130,7 +129,6 @@ export default async function handler(req, res) {
           const cards = tcgData.data || [];
 
           if (cards.length > 0) {
-            // Priorité absolue à la carte avec le numéro exact
             tcgCard = cards.find(c => String(c.number) === String(num)) || cards[0];
           }
         }
@@ -139,7 +137,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // 5. CALCUL DE LA COTE (CARDMARKET EUR)
+    // 5. CALCUL DE LA COTE (CARDMARKET EUR / TCGPLAYER USD)
     let price = 0;
     if (tcgCard?.cardmarket?.prices) {
       const cm = tcgCard.cardmarket.prices;
@@ -147,7 +145,7 @@ export default async function handler(req, res) {
     } else if (tcgCard?.tcgplayer?.prices) {
       const tp = tcgCard.tcgplayer.prices;
       const usdPrice = tp.normal?.market || tp.holofoil?.market || tp.reverseHolofoil?.market || 0;
-      price = usdPrice * 0.9; // Conversion approximative USD -> EUR
+      price = usdPrice * 0.9;
     }
 
     // 6. ENVOI DE LA RÉPONSE AU FRONTEND
