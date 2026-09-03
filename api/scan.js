@@ -34,11 +34,10 @@ export default async function handler(req, res) {
     const base64 = image.split(',')[1] || image;
     const mimeType = image.match(/data:(.*?);/)?.[1] || 'image/jpeg';
 
-    const prompt = `Analyse cette image de carte Pokémon. Renvoie UNIQUEMENT un objet JSON valide sans Markdown ni texte autour, sous cette forme :
+    const prompt = `Analyse cette image de carte Pokémon. Renvoie UNIQUEMENT un objet JSON valide sans Markdown, sous cette forme :
 {"fr": "NomFrançais", "en": "NomAnglais", "num": "Numero"}`;
 
     let rawResultText = null;
-    let lastError = null;
 
     // 3. APPEL IA
     keyLoop: for (const apiKey of keysToTry) {
@@ -71,19 +70,18 @@ export default async function handler(req, res) {
             if (rawResultText) break keyLoop;
           }
         } catch (err) {
-          lastError = err;
+          // Continue au modèle/clé suivant
         }
       }
     }
 
     if (!rawResultText) {
-      return res.status(502).json({ error: 'L\'IA n\'a pas répondu à temps.' });
+      return res.status(502).json({ error: 'L\'IA n\'a pas pu analyser l\'image.' });
     }
 
-    // 4. PARSING ET NETTOYAGE STRICT
+    // 4. NETTOYAGE DES DONNÉES
     let cardData = {};
     try {
-      // Nettoyage au cas où l'IA renvoie du Markdown (```json ... ```)
       const cleanJson = rawResultText.replace(/```json/g, '').replace(/```/g, '').trim();
       cardData = JSON.parse(cleanJson);
     } catch (e) {
@@ -92,30 +90,33 @@ export default async function handler(req, res) {
 
     const nomEn = (cardData.en || '').trim();
     const nomFr = (cardData.fr || nomEn).trim();
-    let num = (cardData.num || '').split('/')[0].replace(/^0+/, '').trim();
+    
+    // Extraction du numéro : garder la version brute ET la version sans slash
+    const numRaw = (cardData.num || '').split('/')[0].trim();
+    const numClean = numRaw.replace(/^0+/, '').trim(); // sans zéros au début
 
-    // Si aucun nom n'est détecté, arrêt immédiat
     if (!nomEn) {
       return res.status(400).json({ error: 'Nom de carte illisible. Prenez une photo plus nette.' });
     }
 
-    // 5. RECHERCHE CIBLÉE DANS L'API TCG
+    // 5. RECHERCHE EN CASCADE SUR L'API TCG
     let cardsFound = [];
     const cleanSearchName = nomEn.replace(/[^a-zA-Z0-9 ]/g, '').trim();
 
-    // Construction de requêtes sans caractères spéciaux problématiques
+    // On prépare plusieurs essais du plus précis au plus large
     let queries = [];
-    if (cleanSearchName && num) {
-      queries.push(`name:${cleanSearchName} number:${num}`);
-    }
-    if (cleanSearchName) {
-      queries.push(`name:${cleanSearchName}`);
-    }
+    
+    // Essai 1 : Nom + Numéro exact (ex: "019" ou "19")
+    if (numRaw) queries.push(`name:"${cleanSearchName}" number:"${numRaw}"`);
+    if (numClean && numClean !== numRaw) queries.push(`name:"${cleanSearchName}" number:"${numClean}"`);
+    
+    // Essai 2 : Nom seul
+    queries.push(`name:"${cleanSearchName}"`);
 
     for (const q of queries) {
       try {
         const tcgRes = await fetch(
-          `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(q)}&pageSize=15`,
+          `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(q)}&pageSize=20`,
           { signal: AbortSignal.timeout(6000) }
         );
 
@@ -123,15 +124,14 @@ export default async function handler(req, res) {
           const tcgData = await tcgRes.json();
           const results = tcgData.data || [];
 
-          // SÉCURITÉ ANTI-DRACAUFEU :
-          // On ne garde QUE les cartes dont le nom contient réellement le nom recherché
+          // Filtrage de sécurité : s'assurer que le nom correspond
           const filtered = results.filter(c => 
             c.name.toLowerCase().includes(cleanSearchName.toLowerCase())
           );
 
           if (filtered.length > 0) {
             cardsFound = filtered;
-            break;
+            break; // Dès qu'on trouve, on s'arrête !
           }
         }
       } catch (e) {
@@ -140,12 +140,12 @@ export default async function handler(req, res) {
     }
 
     if (cardsFound.length === 0) {
-      return res.status(444).json({
-        error: `Carte non trouvée. L'IA a détecté "${nomFr}" (${nomEn}) #${num}, mais aucune correspondance exacte n'existe dans la base TCG.`
+      return res.status(404).json({
+        error: `Impossible de trouver "${nomFr}" (${nomEn}) dans la base TCG.`
       });
     }
 
-    // 6. FORMATAGE DES CANDIDATS
+    // 6. FORMATAGE DES RÉSULTATS
     const candidates = cardsFound.slice(0, 8).map(c => {
       let price = 0;
       if (c.cardmarket?.prices) {
@@ -170,7 +170,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       detectedName: nomFr,
-      detectedNum: num,
+      detectedNum: numRaw || numClean,
       candidates: candidates
     });
 
