@@ -1,3 +1,5 @@
+import { GoogleGenAI } from '@google/genai';
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Méthode non autorisée. Utilisez POST.' });
@@ -10,63 +12,50 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Aucune image n\'a été fournie.' });
     }
 
-    const geminiApiKey = process.env.GEMINI_API_KEY;
-    if (!geminiApiKey) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
       return res.status(500).json({ error: 'Clé GEMINI_API_KEY manquante dans Vercel.' });
     }
 
-    // 1. Extraction et nettoyage des données Base64
+    // 1. Initialisation du SDK officiel
+    const ai = new GoogleGenAI({ apiKey });
+
+    // Nettoyage de l'image base64
     const base64Data = image.split(',')[1] || image;
     const mimeType = image.split(';')[0].split(':')[1] || 'image/jpeg';
 
-    // 2. Appel à l'API via le point d'entrée canonique v1beta
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
-
     const promptText = `Analyse cette image de carte Pokémon TCG.
 Identifie le nom de la carte et son numéro (ex: 4/102 ou 058/102).
-Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans aucun texte autour ni balises markdown :
+Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans texte ni markdown :
 {"cardName": "Nom de la carte", "cardNumber": "numéro"}`;
 
-    const geminiResponse = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: promptText },
-              {
-                inlineData: {
-                  mimeType: mimeType,
-                  data: base64Data
-                }
-              }
-            ]
-          }
-        ]
-      })
+    // 2. Appel du modèle via le SDK
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [
+        {
+          inlineData: {
+            mimeType: mimeType,
+            data: base64Data,
+          },
+        },
+        promptText,
+      ],
     });
 
-    const geminiData = await geminiResponse.json();
-
-    if (!geminiResponse.ok) {
-      throw new Error(geminiData.error?.message || `Erreur Gemini (${geminiResponse.status})`);
-    }
-
-    // Extraction et nettoyage du JSON
-    let rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    let rawText = response.text || '';
     rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
 
     let parsedInfo;
     try {
       parsedInfo = JSON.parse(rawText);
     } catch (e) {
-      throw new Error('Erreur de lecture de la réponse Gemini : ' + rawText);
+      throw new Error('Erreur lors du traitement JSON par Gemini : ' + rawText);
     }
 
     const { cardName, cardNumber } = parsedInfo;
 
-    // 3. Interrogation de l'API Pokémon TCG
+    // 3. Recherche de la côte et de l'image sur l'API Pokémon TCG
     let searchQuery = `name:"${cardName}"`;
     if (cardNumber) {
       const cleanNum = cardNumber.split('/')[0].trim();
@@ -78,7 +67,7 @@ Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans aucun tex
 
     const matchedCard = tcgData.data && tcgData.data.length > 0 ? tcgData.data[0] : null;
 
-    // 4. Extraction du prix Cardmarket ou TCGPlayer
+    // 4. Récupération du prix
     let price = 0;
     if (matchedCard?.cardmarket?.prices?.averageSellPrice) {
       price = matchedCard.cardmarket.prices.averageSellPrice;
@@ -88,7 +77,6 @@ Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans aucun tex
       price = matchedCard.tcgplayer.prices.normal.market;
     }
 
-    // 5. Renvoi du résultat final
     return res.status(200).json({
       success: true,
       cardName: matchedCard ? matchedCard.name : (cardName || 'Carte inconnue'),
