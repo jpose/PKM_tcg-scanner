@@ -8,44 +8,41 @@
 </head>
 <body class="bg-slate-900 text-white min-h-screen flex flex-col items-center justify-center p-4">
 
-  <div class="max-w-md w-full bg-slate-800 rounded-2xl shadow-xl overflow-hidden border border-slate-700 p-6 flex flex-col items-center">
+  <div class="max-w-md w-full bg-slate-800 rounded-2xl shadow-2xl overflow-hidden border border-slate-700 p-6 flex flex-col items-center">
     
-    <h1 class="text-2xl font-bold mb-4 text-center text-amber-400">Scanner de Carte Pokémon</h1>
+    <h1 class="text-2xl font-bold mb-4 text-center text-amber-400">Scanner de Carte</h1>
 
-    <!-- Vue Caméra -->
+    <!-- 1. Vue Caméra -->
     <div id="cameraView" class="w-full flex flex-col items-center">
-      <div class="relative w-full aspect-[3/4] bg-black rounded-xl overflow-hidden mb-4 border-2 border-amber-400/50">
+      <div class="relative w-full aspect-[3/4] bg-black rounded-xl overflow-hidden mb-4 border-2 border-amber-400/50 shadow-inner">
         <video id="video" autoplay playsinline class="w-full h-full object-cover"></video>
       </div>
-      <button id="captureBtn" onclick="captureAndScan()" class="w-full py-3 bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold rounded-xl shadow-lg transition duration-200">
+      <button onclick="captureAndScan()" class="w-full py-3.5 bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold rounded-xl shadow-lg transition duration-200 text-lg">
         Prendre la photo
       </button>
     </div>
 
-    <!-- Vue Chargement -->
+    <!-- 2. Vue Chargement -->
     <div id="loadingView" class="hidden w-full flex flex-col items-center justify-center py-12">
-      <div class="animate-spin rounded-full h-16 w-16 border-b-2 border-amber-400 mb-4"></div>
-      <p class="text-slate-300 font-medium">Analyse et recherche de cote en cours...</p>
+      <div class="animate-spin rounded-full h-16 w-16 border-4 border-amber-400 border-t-transparent mb-4"></div>
+      <p class="text-slate-300 font-medium text-center">Analyse IA & estimation en cours...</p>
     </div>
 
-    <!-- Vue Résultat -->
+    <!-- 3. Vue Résultat -->
     <div id="resultView" class="hidden w-full flex flex-col items-center">
-      
-      <!-- Box Erreur -->
-      <div id="errorBox" class="hidden w-full p-4 mb-4 bg-red-900/50 border border-red-500 rounded-xl text-red-200 text-sm"></div>
+      <div id="errorBox" class="hidden w-full p-4 mb-4 bg-red-900/50 border border-red-500 rounded-xl text-red-200 text-sm text-center"></div>
 
-      <!-- Image de la carte (Officielle ou Photo scannée) -->
-      <img id="cardImg" src="" alt="Photo de la carte" class="w-48 h-64 object-contain rounded-lg shadow-md mb-4 border border-slate-600 bg-slate-950">
+      <img id="cardImg" src="" alt="Carte Pokémon" class="w-48 h-64 object-contain rounded-lg shadow-xl mb-4 border border-slate-600 bg-slate-950 hidden">
       
-      <h2 id="cardName" class="text-xl font-bold text-center mb-1"></h2>
+      <h2 id="cardName" class="text-xl font-bold text-center mb-1 text-white"></h2>
       <p id="cardSet" class="text-slate-400 text-sm text-center mb-4"></p>
       
-      <div class="bg-slate-700/50 px-6 py-3 rounded-xl border border-slate-600 mb-6 text-center w-full">
-        <span class="text-xs text-slate-400 uppercase tracking-wider block">Cote estimée (Cardmarket EUR)</span>
-        <span id="cardPrice" class="text-2xl font-black text-amber-400"></span>
+      <div class="bg-slate-700/50 px-6 py-3 rounded-xl border border-slate-600 mb-6 text-center w-full shadow-inner">
+        <span class="text-xs text-slate-400 uppercase tracking-wider block font-semibold">Cote Cardmarket</span>
+        <span id="cardPrice" class="text-3xl font-black text-amber-400"></span>
       </div>
 
-      <button onclick="startCamera()" class="w-full py-3 bg-slate-700 hover:bg-slate-600 font-bold rounded-xl transition duration-200">
+      <button onclick="startCamera()" class="w-full py-3.5 bg-slate-700 hover:bg-slate-600 font-bold rounded-xl transition duration-200 text-white">
         Scanner une autre carte
       </button>
     </div>
@@ -58,13 +55,10 @@
     const loadingView = document.getElementById('loadingView');
     const resultView = document.getElementById('resultView');
     const errorBox = document.getElementById('errorBox');
-    const cardImg = document.getElementById('cardImg');
-    const cardName = document.getElementById('cardName');
-    const cardSet = document.getElementById('cardSet');
-    const cardPrice = document.getElementById('cardPrice');
-
+    
     let currentStream = null;
 
+    // Démarrage de la caméra
     async function startCamera() {
       resultView.classList.add('hidden');
       loadingView.classList.add('hidden');
@@ -78,12 +72,13 @@
         });
         video.srcObject = currentStream;
       } catch (err) {
-        showError("Impossible d'accéder à la caméra : " + err.message);
+        showError("Impossible d'accéder à la caméra. Vérifiez les autorisations de votre navigateur.");
         cameraView.classList.add('hidden');
         resultView.classList.remove('hidden');
       }
     }
 
+    // Arrêt du flux vidéo
     function stopCamera() {
       if (currentStream) {
         currentStream.getTracks().forEach(track => track.stop());
@@ -91,16 +86,18 @@
       }
     }
 
-    function showError(message) {
-      errorBox.textContent = message;
+    // Affichage des erreurs
+    function showError(msg) {
+      errorBox.textContent = msg;
       errorBox.classList.remove('hidden');
     }
 
+    // Capture de la photo et appel de l'API Vercel
     async function captureAndScan() {
       if (!currentStream) return;
 
       const canvas = document.createElement('canvas');
-      const maxDim = 600;
+      const maxDim = 800; // Taille idéale pour Gemini 1.5 Flash (lisible et très rapide)
       let w = video.videoWidth || 640;
       let h = video.videoHeight || 480;
 
@@ -116,14 +113,13 @@
 
       canvas.width = w;
       canvas.height = h;
-
       const ctx = canvas.getContext('2d');
       ctx.drawImage(video, 0, 0, w, h);
 
-      const imageData = canvas.toDataURL('image/jpeg', 0.5);
+      // Compression à 60% : le fichier pèse moins de 100 Ko
+      const imageData = canvas.toDataURL('image/jpeg', 0.6);
 
       stopCamera();
-
       cameraView.classList.add('hidden');
       loadingView.classList.remove('hidden');
 
@@ -134,51 +130,32 @@
           body: JSON.stringify({ image: imageData })
         });
 
-        const responseText = await response.text();
-        let data;
-
-        try {
-          data = JSON.parse(responseText);
-        } catch (e) {
-          loadingView.classList.add('hidden');
-          resultView.classList.remove('hidden');
-          showError('Erreur serveur (réponse non-JSON) : ' + responseText.slice(0, 100));
-          return;
-        }
+        const data = await response.json();
 
         loadingView.classList.add('hidden');
         resultView.classList.remove('hidden');
 
         if (!response.ok || data.error) {
-          showError(data.error || 'Erreur lors de l\'analyse');
-          return;
+          return showError(data.error || "Une erreur est survenue lors du traitement.");
         }
 
-        errorBox.classList.add('hidden');
-        cardName.textContent = data.cardName || 'Carte inconnue';
-        cardSet.textContent = data.setName || 'Extension inconnue';
+        // Affichage des résultats renvoyés par l'API
+        document.getElementById('cardName').textContent = data.cardName;
+        document.getElementById('cardSet').textContent = data.setName;
+        document.getElementById('cardPrice').textContent = data.price > 0 ? `${data.price.toFixed(2)} €` : 'Non cotée';
         
-        if (data.estimatedPrice && data.estimatedPrice > 0) {
-          cardPrice.textContent = `${data.estimatedPrice} €`;
-        } else {
-          cardPrice.textContent = 'Non cotée / Inconnue';
-        }
-
-        // Affiche systématiquement l'image (officielle ou la photo scannée)
-        if (data.imageUrl) {
-          cardImg.src = data.imageUrl;
-          cardImg.classList.remove('hidden');
-        } else {
-          cardImg.classList.add('hidden');
-        }
+        const imgEl = document.getElementById('cardImg');
+        imgEl.src = data.imageUrl;
+        imgEl.classList.remove('hidden');
 
       } catch (err) {
         loadingView.classList.add('hidden');
         resultView.classList.remove('hidden');
-        showError('Erreur de réseau : ' + err.message);
+        showError("Erreur de connexion avec le serveur : " + err.message);
       }
     }
 
+    // Initialisation automatique de la caméra au chargement
     window.addEventListener('DOMContentLoaded', startCamera);
   </script>
 </body>
