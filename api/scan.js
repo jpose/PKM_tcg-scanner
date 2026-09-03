@@ -97,42 +97,42 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Nom de carte illisible. Prenez une photo plus nette.' });
     }
 
-    // 5. RECHERCHE SUR L'API TCG (CORRIGÉE SANS LE RETOUR A DRACAUFEU)
-    const cleanSearchName = nomEn.replace(/[^a-zA-Z0-9 ]/g, '').trim();
-    const isSearchingCharizard = cleanSearchName.toLowerCase().includes('charizard') || nomFr.toLowerCase().includes('dracaufeu');
+    // 5. RECHERCHE TCG (SYNTAXE STRICTE TCG API)
+    // On nettoie le nom pour garder uniquement les lettres et espaces
+    const searchName = nomEn.replace(/[^a-zA-Z0-9 ]/g, '').trim();
 
+    // Construction des requêtes dans l'ordre de précision
     let queries = [];
-    if (numRaw) queries.push(`name:"*${cleanSearchName}*" number:"${numRaw}"`);
-    if (numClean && numClean !== numRaw) queries.push(`name:"*${cleanSearchName}*" number:"${numClean}"`);
-    queries.push(`name:"*${cleanSearchName}*"`);
+    if (numClean) {
+      queries.push(`name:${searchName} number:${numClean}`);
+    }
+    if (numRaw && numRaw !== numClean) {
+      queries.push(`name:${searchName} number:${numRaw}`);
+    }
+    queries.push(`name:${searchName}`);
 
     let cardsFound = [];
 
     for (const q of queries) {
       try {
-        const tcgRes = await fetch(
-          `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(q)}&pageSize=15`,
-          { signal: AbortSignal.timeout(6000) }
-        );
+        const urlTCG = `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(q)}`;
+        
+        const tcgRes = await fetch(urlTCG, { 
+          signal: AbortSignal.timeout(6000) 
+        });
 
         if (tcgRes.ok) {
           const tcgData = await tcgRes.json();
           const results = tcgData.data || [];
 
-          // VERROU SÉCURITÉ : rejet des faux positifs
-          const filtered = results.filter(c => {
-            const cardNameLower = c.name.toLowerCase();
-            const matchesName = cardNameLower.includes(cleanSearchName.toLowerCase());
+          // VERIFICATION : on s'assure que le résultat contient VRAIMENT le nom cherché
+          const valid = results.filter(c => 
+            c.name.toLowerCase().includes(searchName.toLowerCase())
+          );
 
-            if (!isSearchingCharizard) {
-              return matchesName && !cardNameLower.includes('charizard');
-            }
-            return matchesName;
-          });
-
-          if (filtered.length > 0) {
-            cardsFound = filtered;
-            break;
+          if (valid.length > 0) {
+            cardsFound = valid;
+            break; // Succès !
           }
         }
       } catch (e) {
@@ -142,7 +142,7 @@ export default async function handler(req, res) {
 
     if (cardsFound.length === 0) {
       return res.status(404).json({
-        error: `Impossible de trouver "${nomFr}" (${nomEn}) dans la base TCG.`
+        error: `Aucune carte TCG trouvée pour "${nomFr}" (${nomEn}) #${numRaw || 'inconnu'}.`
       });
     }
 
