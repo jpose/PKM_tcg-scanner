@@ -1,3 +1,7 @@
+export const config = {
+  maxDuration: 15, // Indique à Vercel d'autoriser jusqu'à 15s d'exécution
+};
+
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json');
 
@@ -23,12 +27,13 @@ export default async function handler(req, res) {
     const base64Data = image.split(',')[1] || image;
     const mimeType = image.split(';')[0].split(':')[1] || 'image/jpeg';
 
+    // Prompt court et direct pour maximiser la rapidité d'exécution
     const promptText = `Analyse cette carte Pokémon.
-Identifie :
-1. Le nom de la carte en français (cardNameFr)
-2. Le nom de la carte en anglais (cardNameEn)
-3. Le numéro imprimé en bas à gauche/droite (cardNumber), par exemple "025/185" ou "25"
-Renvoie uniquement un objet JSON avec les clés : cardNameFr, cardNameEn, cardNumber.`;
+Extraits :
+1. cardNameFr (Nom FR)
+2. cardNameEn (Nom EN)
+3. cardNumber (Ex: 025/185 ou 25)
+Renvoie uniquement un JSON : {"cardNameFr":"", "cardNameEn":"", "cardNumber":""}`;
 
     let geminiRes;
     try {
@@ -43,13 +48,15 @@ Renvoie uniquement un objet JSON avec les clés : cardNameFr, cardNameEn, cardNu
             ]
           }],
           generationConfig: {
-            response_mime_type: 'application/json'
+            response_mime_type: 'application/json',
+            temperature: 0.1,      // Réponse plus directe et rapide
+            maxOutputTokens: 120   // Empêche le modèle de générer trop de texte
           }
         }),
-        signal: AbortSignal.timeout(10000)
+        signal: AbortSignal.timeout(8000) // Intercepte le timeout à 8s avant la limite Vercel
       });
     } catch (err) {
-      return res.status(504).json({ error: 'Délai dépassé lors de l\'analyse Gemini (10s).' });
+      return res.status(504).json({ error: 'L\'analyse de l\'image prend trop de temps. Réessayez avec une photo plus nette et bien cadrée.' });
     }
 
     const rawResponseBody = await geminiRes.text();
@@ -59,7 +66,7 @@ Renvoie uniquement un objet JSON avec les clés : cardNameFr, cardNameEn, cardNu
       geminiData = JSON.parse(rawResponseBody);
     } catch (e) {
       return res.status(500).json({ 
-        error: `Réponse serveur non-JSON de Gemini : ${rawResponseBody.slice(0, 100)}` 
+        error: `Réponse serveur non-JSON : ${rawResponseBody.slice(0, 100)}` 
       });
     }
 
@@ -75,14 +82,13 @@ Renvoie uniquement un objet JSON avec les clés : cardNameFr, cardNameEn, cardNu
       const jsonMatch = rawText.match(/\{[\s\S]*\}/);
       parsedInfo = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(rawText);
     } catch (e) {
-      return res.status(500).json({ error: `Impossible de lire le JSON Gemini : ${rawText.slice(0, 100)}` });
+      return res.status(500).json({ error: `Impossible de lire la réponse : ${rawText.slice(0, 100)}` });
     }
 
     const cardNameFr = parsedInfo.cardNameFr || parsedInfo.cardNameEn || 'Carte inconnue';
     const cardNameEn = parsedInfo.cardNameEn || parsedInfo.cardNameFr || '';
     const cardNumber = parsedInfo.cardNumber || '';
 
-    // Extraction propre du numéro (ex: "025/185" -> "25")
     let cleanNumber = '';
     if (cardNumber) {
       const rawNum = cardNumber.split('/')[0].trim();
@@ -91,7 +97,6 @@ Renvoie uniquement un objet JSON avec les clés : cardNameFr, cardNameEn, cardNu
 
     let matchedCard = null;
 
-    // Recherche dans la base Pokémon TCG
     if (cardNameEn || cardNameFr || cleanNumber) {
       try {
         let queryParts = [];
@@ -101,7 +106,7 @@ Renvoie uniquement un objet JSON avec les clés : cardNameFr, cardNameEn, cardNu
         const queryStr = queryParts.join(' ');
         const tcgRes = await fetch(
           `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(queryStr)}`,
-          { signal: AbortSignal.timeout(4000) }
+          { signal: AbortSignal.timeout(3000) }
         );
 
         if (tcgRes.ok) {
@@ -109,7 +114,6 @@ Renvoie uniquement un objet JSON avec les clés : cardNameFr, cardNameEn, cardNu
           const cards = tcgData.data || [];
 
           if (cards.length > 0) {
-            // Sélection de la meilleure carte correspondante
             matchedCard = cards.find(c => 
               c.number === cleanNumber || 
               c.name.toLowerCase() === cardNameEn.toLowerCase()
@@ -121,20 +125,16 @@ Renvoie uniquement un objet JSON avec les clés : cardNameFr, cardNameEn, cardNu
       }
     }
 
-    // Récupération stricte de la cote Cardmarket (EUR)
     let price = 0;
     if (matchedCard) {
       const cm = matchedCard.cardmarket?.prices || {};
-      
-      // On privilégie la valeur moyenne ou la valeur de tendance en euros
       price = cm.averageSellPrice || cm.trendPrice || cm.lowPrice || 0;
       
-      // Si aucune valeur Cardmarket, secours maîtrisé sur TCGPlayer
       if (!price && matchedCard.tcgplayer?.prices) {
         const tcg = matchedCard.tcgplayer.prices;
         const marketPrice = tcg.normal?.market || tcg.holofoil?.market || tcg.reverseHolofoil?.market;
         if (marketPrice) {
-          price = marketPrice * 0.92; // Conversion approximative USD -> EUR
+          price = marketPrice * 0.92;
         }
       }
     }
@@ -144,7 +144,6 @@ Renvoie uniquement un objet JSON avec les clés : cardNameFr, cardNameEn, cardNu
       cardName: matchedCard ? `${cardNameFr} (${matchedCard.name})` : cardNameFr,
       setName: matchedCard ? `${matchedCard.set.name} — ${matchedCard.number}/${matchedCard.set.printedTotal}` : 'Extension non identifiée',
       estimatedPrice: Number(price.toFixed(2)),
-      // Image officielle si disponible, sinon renvoie l'image scannée
       imageUrl: matchedCard?.images?.large || image
     });
 
