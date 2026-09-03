@@ -17,8 +17,8 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Clé GEMINI_API_KEY manquante dans Vercel.' });
     }
 
-    // Modèle Gemini avec repli sur 2.5-flash si 3.6 n'est pas disponible sur votre projet
-    const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    // Modèle verrouillé exclusivement sur gemini-3.6-flash
+    const modelName = 'gemini-3.6-flash';
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
 
     const base64Data = image.split(',')[1] || image;
@@ -40,7 +40,6 @@ Renvoie uniquement les clés cardNameFr, cardNameEn et cardNumber.`;
               { inline_data: { mime_type: mimeType, data: base64Data } }
             ]
           }],
-          // Force Gemini à répondre exclusivement au format JSON
           generationConfig: {
             response_mime_type: 'application/json'
           }
@@ -48,10 +47,9 @@ Renvoie uniquement les clés cardNameFr, cardNameEn et cardNumber.`;
         signal: AbortSignal.timeout(6000)
       });
     } catch (err) {
-      return res.status(504).json({ error: 'Délai d\'analyse Gemini dépassé (6s).' });
+      return res.status(504).json({ error: 'Délai d\'analyse Gemini 3.6 Flash dépassé (6s).' });
     }
 
-    // Lecture sécurisée du texte brut de réponse
     const rawResponseBody = await geminiRes.text();
     let geminiData;
 
@@ -59,7 +57,7 @@ Renvoie uniquement les clés cardNameFr, cardNameEn et cardNumber.`;
       geminiData = JSON.parse(rawResponseBody);
     } catch (e) {
       return res.status(500).json({ 
-        error: `Réponse serveur Gemini non-JSON : ${rawResponseBody.slice(0, 80)}...` 
+        error: `Réponse serveur non-JSON : ${rawResponseBody.slice(0, 80)}...` 
       });
     }
 
@@ -70,7 +68,6 @@ Renvoie uniquement les clés cardNameFr, cardNameEn et cardNumber.`;
 
     const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-    // Extrait le bloc JSON même si Gemini entoure son texte avec d'autres caractères
     let parsedInfo = {};
     try {
       const jsonMatch = rawText.match(/\{[\s\S]*\}/);
