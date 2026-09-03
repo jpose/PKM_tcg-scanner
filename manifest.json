@@ -1,20 +1,15 @@
 {
-  "name": "TCG Card Scanner",
-  "short_name": "TCGScan",
-  "start_url": "./index.html",
-  "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#3b82f6",
+  "short_name": "Scanner",
+  "name": "Application de Scan",
   "icons": [
     {
-      "src": "https://via.placeholder.com/192",
-      "sizes": "192x192",
-      "type": "image/png"
-    },
-    {
-      "src": "https://via.placeholder.com/512",
-      "sizes": "512x512",
-      "type": "image/png"
+      "src": "logo.jpg",
+      "sizes": "192x192 512x512",
+      "type": "image/jpeg"
     }
-  ]
+  ],
+  "start_url": "/",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "display": "standalone"
 }
