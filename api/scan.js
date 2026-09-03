@@ -17,7 +17,6 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Clé GEMINI_API_KEY manquante dans Vercel.' });
     }
 
-    // Modèle fixé explicitement sur gemini-3.6-flash selon la consigne Google
     const modelName = 'gemini-3.6-flash';
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
 
@@ -25,8 +24,11 @@ export default async function handler(req, res) {
     const mimeType = image.split(';')[0].split(':')[1] || 'image/jpeg';
 
     const promptText = `Analyse cette carte Pokémon.
-Identifie le nom de la carte en français (cardNameFr), son nom en anglais (cardNameEn) et son numéro imprimé en bas (cardNumber).
-Renvoie uniquement un objet JSON valide avec les clés cardNameFr, cardNameEn et cardNumber.`;
+Identifie :
+1. Le nom de la carte en français (cardNameFr)
+2. Le nom de la carte en anglais (cardNameEn)
+3. Le numéro imprimé en bas à gauche/droite (cardNumber), par exemple "025/185" ou "25"
+Renvoie uniquement un objet JSON avec les clés : cardNameFr, cardNameEn, cardNumber.`;
 
     let geminiRes;
     try {
@@ -44,22 +46,20 @@ Renvoie uniquement un objet JSON valide avec les clés cardNameFr, cardNameEn et
             response_mime_type: 'application/json'
           }
         }),
-        // Timeout augmenté à 10s
         signal: AbortSignal.timeout(10000)
       });
     } catch (err) {
-      return res.status(504).json({ error: 'Délai dépassé lors de l\'appel à Gemini 3.6 Flash (10s).' });
+      return res.status(504).json({ error: 'Délai dépassé lors de l\'analyse Gemini (10s).' });
     }
 
     const rawResponseBody = await geminiRes.text();
     let geminiData;
 
-    // Protection contre l'erreur 'Unexpected token' si l'API renvoie du texte au lieu d'un JSON
     try {
       geminiData = JSON.parse(rawResponseBody);
     } catch (e) {
       return res.status(500).json({ 
-        error: `Réponse serveur non-JSON de Gemini 3.6 Flash : ${rawResponseBody.slice(0, 100)}` 
+        error: `Réponse serveur non-JSON de Gemini : ${rawResponseBody.slice(0, 100)}` 
       });
     }
 
@@ -70,23 +70,19 @@ Renvoie uniquement un objet JSON valide avec les clés cardNameFr, cardNameEn et
 
     const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-    // Extraction sécurisée du JSON
     let parsedInfo = {};
     try {
       const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        parsedInfo = JSON.parse(jsonMatch[0]);
-      } else {
-        parsedInfo = JSON.parse(rawText);
-      }
+      parsedInfo = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(rawText);
     } catch (e) {
-      return res.status(500).json({ error: `Impossible de lire le JSON renvoyé par le modèle : ${rawText.slice(0, 100)}` });
+      return res.status(500).json({ error: `Impossible de lire le JSON Gemini : ${rawText.slice(0, 100)}` });
     }
 
     const cardNameFr = parsedInfo.cardNameFr || parsedInfo.cardNameEn || 'Carte inconnue';
     const cardNameEn = parsedInfo.cardNameEn || parsedInfo.cardNameFr || '';
     const cardNumber = parsedInfo.cardNumber || '';
 
+    // Extraction propre du numéro (ex: "025/185" -> "25")
     let cleanNumber = '';
     if (cardNumber) {
       const rawNum = cardNumber.split('/')[0].trim();
@@ -95,57 +91,61 @@ Renvoie uniquement un objet JSON valide avec les clés cardNameFr, cardNameEn et
 
     let matchedCard = null;
 
-    if (cleanNumber) {
+    // Recherche dans la base Pokémon TCG
+    if (cardNameEn || cardNameFr || cleanNumber) {
       try {
+        let queryParts = [];
+        if (cleanNumber) queryParts.push(`number:"${cleanNumber}"`);
+        if (cardNameEn) queryParts.push(`name:"*${cardNameEn}*"`);
+
+        const queryStr = queryParts.join(' ');
         const tcgRes = await fetch(
-          `https://api.pokemontcg.io/v2/cards?q=number:"${cleanNumber}"`,
-          { signal: AbortSignal.timeout(3000) }
+          `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(queryStr)}`,
+          { signal: AbortSignal.timeout(4000) }
         );
 
         if (tcgRes.ok) {
           const tcgData = await tcgRes.json();
           const cards = tcgData.data || [];
 
-          if (cards.length === 1) {
-            matchedCard = cards[0];
-          } else if (cards.length > 1) {
-            matchedCard = cards.find(c =>
-              c.name.toLowerCase().includes(cardNameEn.toLowerCase()) ||
-              cardNameEn.toLowerCase().includes(c.name.toLowerCase()) ||
-              c.name.toLowerCase().includes(cardNameFr.toLowerCase())
+          if (cards.length > 0) {
+            // Sélection de la meilleure carte correspondante
+            matchedCard = cards.find(c => 
+              c.number === cleanNumber || 
+              c.name.toLowerCase() === cardNameEn.toLowerCase()
             ) || cards[0];
           }
         }
       } catch (tcgErr) {
-        console.warn('API TCG indisponible ou hors délai.');
+        console.warn('API TCG hors délai');
       }
     }
 
+    // Récupération stricte de la cote Cardmarket (EUR)
     let price = 0;
     if (matchedCard) {
       const cm = matchedCard.cardmarket?.prices || {};
-      const tcg = matchedCard.tcgplayer?.prices || {};
-
-      const potentialPrices = [
-        cm.averageSellPrice,
-        cm.trendPrice,
-        cm.lowPrice,
-        tcg.normal?.market,
-        tcg.holofoil?.market,
-        tcg.reverseHolofoil?.market
-      ].filter(p => typeof p === 'number' && p > 0);
-
-      if (potentialPrices.length > 0) {
-        price = potentialPrices[0];
+      
+      // On privilégie la valeur moyenne ou la valeur de tendance en euros
+      price = cm.averageSellPrice || cm.trendPrice || cm.lowPrice || 0;
+      
+      // Si aucune valeur Cardmarket, secours maîtrisé sur TCGPlayer
+      if (!price && matchedCard.tcgplayer?.prices) {
+        const tcg = matchedCard.tcgplayer.prices;
+        const marketPrice = tcg.normal?.market || tcg.holofoil?.market || tcg.reverseHolofoil?.market;
+        if (marketPrice) {
+          price = marketPrice * 0.92; // Conversion approximative USD -> EUR
+        }
       }
     }
 
     return res.status(200).json({
       success: true,
       cardName: matchedCard ? `${cardNameFr} (${matchedCard.name})` : cardNameFr,
-      setName: matchedCard ? `${matchedCard.set.name} — ${matchedCard.number}/${matchedCard.set.printedTotal}` : 'Extension non trouvée',
+      setName: matchedCard ? `${matchedCard.set.name} — ${matchedCard.number}/${matchedCard.set.printedTotal}` : 'Extension non identifiée',
       estimatedPrice: Number(price.toFixed(2)),
-      imageUrl: matchedCard ? matchedCard.images.large : ''
+      // Image officielle si disponible, sinon renvoie l'image scannée
+      imageUrl: matchedCard?.images?.large || image
     });
 
   } catch (error) {
