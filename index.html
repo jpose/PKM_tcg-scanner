@@ -64,23 +64,16 @@
       font-size: 1rem;
       font-weight: bold;
       cursor: pointer;
-      transition: background 0.2s;
     }
 
-    .btn:hover {
+    .btn:active {
       background-color: #0369a1;
-    }
-
-    .btn:disabled {
-      background-color: #475569;
-      cursor: not-allowed;
     }
 
     .hidden {
       display: none !important;
     }
 
-    /* Styles pour la fiche de résultat */
     .card-info {
       padding: 20px;
       width: 100%;
@@ -132,7 +125,7 @@
   <div class="container">
     <h1>Scanner de Carte Pokémon</h1>
 
-    <!-- Vue Appareil Photo -->
+    <!-- Vue Caméra -->
     <div id="camera-view">
       <video id="webcam" autoplay playsinline></video>
       <div style="padding: 15px; width: 100%;">
@@ -172,19 +165,17 @@
 
     let currentStream = null;
 
-    // 1. Démarrer la flux caméra
     async function startCamera() {
       try {
         currentStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' } // Préfère la caméra arrière sur mobile
+          video: { facingMode: 'environment', width: { ideal: 1280 } }
         });
         video.srcObject = currentStream;
       } catch (err) {
-        alert("Impossible d'accéder à la caméra : " + err.message);
+        alert("Accès à la caméra refusé ou non supporté : " + err.message);
       }
     }
 
-    // 2. Arrêter la caméra pour couper la prise de vue
     function stopCamera() {
       if (currentStream) {
         currentStream.getTracks().forEach(track => track.stop());
@@ -193,24 +184,38 @@
       }
     }
 
-    // 3. Capture et envoi de la photo
     async function captureAndScan() {
       if (!currentStream) return;
 
-      // Création d'un canvas pour extraire l'image courante
+      // 1. Capture et compression de la photo à une taille raisonnable (max 800px)
       const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth || 640;
-      canvas.height = video.videoHeight || 480;
+      const maxDim = 800;
+      let w = video.videoWidth || 640;
+      let h = video.videoHeight || 480;
+
+      if (w > maxDim || h > maxDim) {
+        if (w > h) {
+          h = Math.round((h * maxDim) / w);
+          w = maxDim;
+        } else {
+          w = Math.round((w * maxDim) / h);
+          h = maxDim;
+        }
+      }
+
+      canvas.width = w;
+      canvas.height = h;
 
       const ctx = canvas.getContext('2d');
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      ctx.drawImage(video, 0, 0, w, h);
 
-      const imageData = canvas.toDataURL('image/jpeg');
+      // Qualité JPEG à 0.75 pour garantir un envoi ultra-rapide
+      const imageData = canvas.toDataURL('image/jpeg', 0.75);
 
-      // --- ARRÊT DE LA CAMÉRA APRÈS LA CAPTURE ---
+      // 2. Couper immédiatement l'appareil photo
       stopCamera();
 
-      // Bascule de l'interface
+      // 3. Basculer la vue
       cameraView.classList.add('hidden');
       loadingView.classList.remove('hidden');
 
@@ -230,7 +235,6 @@
           return;
         }
 
-        // Affichage des données
         errorBox.classList.add('hidden');
         cardName.textContent = data.cardName || 'Carte inconnue';
         cardSet.textContent = data.setName || 'Extension inconnue';
@@ -246,7 +250,7 @@
       } catch (err) {
         loadingView.classList.add('hidden');
         resultView.classList.remove('hidden');
-        showError('Erreur de connexion : ' + err.message);
+        showError('Erreur de réseau : ' + err.message);
       }
     }
 
@@ -259,16 +263,14 @@
       cardImg.classList.add('hidden');
     }
 
-    // Événements
     scanBtn.addEventListener('click', captureAndScan);
 
     retryBtn.addEventListener('click', () => {
       resultView.classList.add('hidden');
       cameraView.classList.remove('hidden');
-      startCamera(); // Relance la caméra pour une nouvelle capture
+      startCamera();
     });
 
-    // Lancement de la caméra au chargement
     startCamera();
   </script>
 </body>
