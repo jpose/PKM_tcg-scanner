@@ -3,397 +3,280 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TCG Scan & Collection</title>
-  <link rel="manifest" href="/manifest.json">
-  <meta name="theme-color" content="#2563eb">
+  <title>Scanner Carte Pokémon TCG</title>
   <style>
-    :root {
-      --primary: #2563eb;
-      --success: #059669;
-      --bg: #f8fafc;
-      --text: #0f172a;
-    }
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background-color: var(--bg);
-      color: var(--text);
+    * {
+      box-sizing: border-box;
       margin: 0;
-      padding: 1rem;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      background-color: #f4f6f8;
+      color: #333;
+      display: flex;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 480px;
+      width: 100%;
+      background: #ffffff;
+      padding: 24px;
+      border-radius: 16px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      text-align: center;
+      margin-bottom: 20px;
+      color: #1a1a1a;
+    }
+
+    .upload-section {
       display: flex;
       flex-direction: column;
-      align-items: center;
-      min-height: 100vh;
-      box-sizing: border-box;
+      gap: 12px;
+      margin-bottom: 20px;
     }
-    .app-header {
-      width: 100%;
-      max-width: 480px;
-      text-align: center;
-      margin-bottom: 1rem;
-    }
-    img.logo {
-      max-width: 100px;
-      display: block;
-      margin: 0 auto 0.5rem;
-    }
-    /* Système d'onglets */
-    .nav-tabs {
-      display: flex;
-      width: 100%;
-      max-width: 480px;
-      background: #e2e8f0;
-      border-radius: 10px;
-      padding: 4px;
-      margin-bottom: 1rem;
-      box-sizing: border-box;
-    }
-    .tab-btn {
-      flex: 1;
-      padding: 0.6rem;
-      border: none;
-      background: none;
-      font-weight: 600;
-      color: #64748b;
-      border-radius: 8px;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .tab-btn.active {
-      background: white;
-      color: var(--primary);
-      box-shadow: 0 2px 4px rgba(0,0,0,0.08);
-    }
-    /* Conteneurs de contenu */
-    .tab-content {
-      display: none;
-      width: 100%;
-      max-width: 480px;
-      background: white;
-      padding: 1.25rem;
-      border-radius: 12px;
-      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
-      box-sizing: border-box;
-    }
-    .tab-content.active {
-      display: block;
-    }
-    input[type="file"] { display: none; }
+
     .btn {
-      display: block;
+      display: inline-block;
       width: 100%;
-      padding: 0.75rem;
-      background: var(--primary);
+      padding: 12px 16px;
+      background-color: #2563eb;
       color: white;
       text-align: center;
-      border-radius: 8px;
       font-weight: 600;
-      cursor: pointer;
       border: none;
-      margin-top: 0.75rem;
-      box-sizing: border-box;
-    }
-    .btn-success { background: var(--success); }
-    
-    /* Cartes et images */
-    .image-preview-container {
-      display: flex;
-      gap: 10px;
-      margin-top: 1rem;
-    }
-    .img-box {
-      flex: 1;
-      text-align: center;
-    }
-    .img-box img {
-      width: 100%;
       border-radius: 8px;
-      border: 1px solid #e2e8f0;
-    }
-    .img-box span {
-      font-size: 0.75rem;
-      color: #64748b;
-      display: block;
-      margin-top: 4px;
-    }
-    #result {
-      margin-top: 1rem;
-      padding: 1rem;
-      border-radius: 6px;
-      background: #f1f5f9;
-      font-size: 0.9rem;
-    }
-    .card-info {
-      font-size: 1rem;
-      font-weight: bold;
-      margin-bottom: 0.25rem;
-    }
-    .price-tag {
-      color: var(--success);
-      font-size: 1.25rem;
-      font-weight: bold;
+      cursor: pointer;
+      transition: background-color 0.2s ease;
     }
 
-    /* Liste de la collection */
-    .collection-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
+    .btn:hover {
+      background-color: #1d4ed8;
     }
-    .collection-item {
+
+    .btn:disabled {
+      background-color: #93c5fd;
+      cursor: not-allowed;
+    }
+
+    input[type="file"] {
+      display: none;
+    }
+
+    .preview-container {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 2.5 / 3.5;
+      background-color: #e5e7eb;
+      border-radius: 12px;
+      overflow: hidden;
       display: flex;
       align-items: center;
-      gap: 12px;
-      padding: 0.75rem 0;
-      border-bottom: 1px solid #e2e8f0;
-    }
-    .collection-item img {
-      width: 48px;
-      height: 68px;
-      object-fit: cover;
-      border-radius: 4px;
-      background: #f1f5f9;
-    }
-    .item-details {
-      flex: 1;
+      justify-content: center;
+      margin-bottom: 20px;
+      border: 2px dashed #d1d5db;
     }
 
-    footer {
-      margin-top: auto;
-      padding: 1.5rem 0 0.5rem;
-      font-size: 0.8rem;
-      color: #64748b;
+    .preview-container img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .placeholder-text {
+      color: #6b7280;
+      font-size: 0.9rem;
       text-align: center;
+      padding: 10px;
+    }
+
+    .results {
+      background-color: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 16px;
+      display: none;
+    }
+
+    .results.active {
+      display: block;
+    }
+
+    .result-item {
+      margin-bottom: 12px;
+    }
+
+    .result-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .result-label {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      color: #6b7280;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+
+    .result-value {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #111827;
+      margin-top: 2px;
+    }
+
+    .price-tag {
+      color: #16a34a;
+      font-size: 1.4rem;
+      font-weight: 700;
+    }
+
+    .loader {
+      display: none;
+      text-align: center;
+      margin: 15px 0;
+      font-weight: 600;
+      color: #2563eb;
+    }
+
+    .error-msg {
+      display: none;
+      background-color: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #dc2626;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      margin-top: 15px;
     }
   </style>
 </head>
 <body>
 
-  <div class="app-header">
-    <img src="logo.jpg" alt="Logo" class="logo">
-    <h1 style="font-size: 1.25rem; margin: 0;">TCG Scan & Collection</h1>
-  </div>
+<div class="container">
+  <h1>Scanner de Carte Pokémon</h1>
 
-  <!-- Barre d'onglets -->
-  <div class="nav-tabs">
-    <button class="tab-btn active" onclick="switchTab('scan-tab', this)">📷 Scanner</button>
-    <button class="tab-btn" onclick="switchTab('collection-tab', this)">🎴 Ma Collection</button>
-  </div>
-
-  <!-- Onglet 1: Scan -->
-  <div id="scan-tab" class="tab-content active">
-    <label for="file-input" class="btn">Prendre une photo</label>
+  <div class="upload-section">
+    <label for="file-input" class="btn">Sélectionner ou Prendre une Photo</label>
     <input type="file" id="file-input" accept="image/*" capture="environment">
+  </div>
 
-    <div class="image-preview-container" id="preview-container" style="display:none;">
-      <div class="img-box">
-        <img id="user-preview" alt="Votre photo">
-        <span>Votre photo</span>
-      </div>
-      <div class="img-box" id="tcg-box" style="display:none;">
-        <img id="tcg-preview" alt="Image TCG officielle">
-        <span>Image TCG Officielle</span>
-      </div>
+  <div class="preview-container" id="preview-box">
+    <span class="placeholder-text" id="placeholder">Aucune image sélectionnée</span>
+    <img id="card-img" src="" alt="Aperçu de la carte" style="display: none;">
+  </div>
+
+  <button id="scan-btn" class="btn" style="background-color: #059669;" disabled>Analyser la Carte</button>
+
+  <div class="loader" id="loader">Analyse Gemini en cours...</div>
+  <div class="error-msg" id="error-box"></div>
+
+  <div class="results" id="results-box">
+    <div class="result-item">
+      <div class="result-label">Carte</div>
+      <div class="result-value" id="res-name">-</div>
     </div>
-
-    <button id="scan-btn" class="btn btn-success" style="display:none;">Obtenir l'estimation</button>
-
-    <div id="result">Prenez une carte en photo pour commencer.</div>
-    <button id="add-btn" class="btn" style="display:none; background:#4f46e5;">Ajouter à ma collection</button>
+    <div class="result-item">
+      <div class="result-label">Extension / Numéro</div>
+      <div class="result-value" id="res-set">-</div>
+    </div>
+    <div class="result-item">
+      <div class="result-label">Côte estimée</div>
+      <div class="result-value price-tag" id="res-price">0.00 €</div>
+    </div>
   </div>
+</div>
 
-  <!-- Onglet 2: Collection -->
-  <div id="collection-tab" class="tab-content">
-    <h2 style="font-size: 1.1rem; margin-top:0; display:flex; justify-between; align-items:center;">
-      Valeur totale : <span id="total-value" style="color:var(--success); margin-left: auto;">0,00 €</span>
-    </h2>
-    <ul id="collection" class="collection-list"></ul>
-  </div>
+<script>
+  const fileInput = document.getElementById('file-input');
+  const scanBtn = document.getElementById('scan-btn');
+  const cardImg = document.getElementById('card-img');
+  const placeholder = document.getElementById('placeholder');
+  const loader = document.getElementById('loader');
+  const errorBox = document.getElementById('error-box');
+  const resultsBox = document.getElementById('results-box');
 
-  <footer>
-    Version <span id="app-version">1.2.0</span>
-  </footer>
+  const resName = document.getElementById('res-name');
+  const resSet = document.getElementById('res-set');
+  const resPrice = document.getElementById('res-price');
 
-  <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js').catch(console.error);
-      });
-    }
+  let currentBase64 = null;
 
-    // Gestion des onglets
-    function switchTab(tabId, btn) {
-      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-      document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-      document.getElementById(tabId).classList.add('active');
-      btn.classList.add('active');
-    }
+  // Lecture et conversion du fichier en Base64
+  fileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
 
-    const fileInput = document.getElementById('file-input');
-    const previewContainer = document.getElementById('preview-container');
-    const userPreview = document.getElementById('user-preview');
-    const tcgPreview = document.getElementById('tcg-preview');
-    const tcgBox = document.getElementById('tcg-box');
-    const scanBtn = document.getElementById('scan-btn');
-    const addBtn = document.getElementById('add-btn');
-    const resultDiv = document.getElementById('result');
-    const collectionUl = document.getElementById('collection');
-    const totalValueSpan = document.getElementById('total-value');
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      currentBase64 = event.target.result;
+      
+      // Affichage de la photo scannée localement
+      cardImg.src = currentBase64;
+      cardImg.style.display = 'block';
+      placeholder.style.display = 'none';
 
-    let base64Image = '';
-    let currentScannedCard = null;
-
-    // Gestion LocalStorage
-    function getCollection() {
-      return JSON.parse(localStorage.getItem('tcg_collection') || '[]');
-    }
-
-    function saveCollection(collection) {
-      localStorage.setItem('tcg_collection', JSON.stringify(collection));
-      renderCollection();
-    }
-
-    function renderCollection() {
-      const collection = getCollection();
-      collectionUl.innerHTML = '';
-      let total = 0;
-
-      if (collection.length === 0) {
-        collectionUl.innerHTML = '<li style="color: #94a3b8; font-size: 0.9rem; text-align:center; padding: 1rem 0;">Votre collection est vide.</li>';
-      }
-
-      collection.forEach((item, index) => {
-        total += item.price;
-        const li = document.createElement('li');
-        li.className = 'collection-item';
-        
-        // Image par défaut si l'image TCG n'existe pas
-        const imgUrl = item.imageUrl || item.userImage || 'logo.jpg';
-
-        li.innerHTML = `
-          <img src="${imgUrl}" alt="${item.name}">
-          <div class="item-details">
-            <strong style="display:block; font-size:0.95rem;">${item.name}</strong>
-            <small style="color:#64748b;">${item.set}</small>
-          </div>
-          <div style="text-align:right;">
-            <div style="font-weight:600;">${item.price.toFixed(2)} €</div>
-            <button onclick="removeCard(${index})" style="background:none;border:none;color:#ef4444;cursor:pointer;padding:2px 0;font-size:0.8rem;">Supprimer</button>
-          </div>
-        `;
-        collectionUl.appendChild(li);
-      });
-
-      totalValueSpan.textContent = `${total.toFixed(2)} €`;
-    }
-
-    window.removeCard = function(index) {
-      const collection = getCollection();
-      collection.splice(index, 1);
-      saveCollection(collection);
+      // Réinitialisation de l'affichage
+      scanBtn.disabled = false;
+      errorBox.style.display = 'none';
+      resultsBox.classList.remove('active');
     };
+    reader.readAsDataURL(file);
+  });
 
-    // Compression d'image avant envoi
-    function compressImage(file, maxWidth = 1024, quality = 0.7) {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = (e) => {
-          const img = new Image();
-          img.src = e.target.result;
-          img.onload = () => {
-            const canvas = document.createElement('canvas');
-            let width = img.width;
-            let height = img.height;
+  // Envoi de l'image à l'API Serverless
+  scanBtn.addEventListener('click', async () => {
+    if (!currentBase64) return;
 
-            if (width > maxWidth) {
-              height = Math.round((height * maxWidth) / width);
-              width = maxWidth;
-            }
+    // Mise en état de chargement
+    scanBtn.disabled = true;
+    loader.style.display = 'block';
+    errorBox.style.display = 'none';
+    resultsBox.classList.remove('active');
 
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, width, height);
-            resolve(canvas.toDataURL('image/jpeg', quality));
-          };
-          img.onerror = (err) => reject(err);
-        };
-        reader.onerror = (err) => reject(err);
+    try {
+      const response = await fetch('/api/scan', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ image: currentBase64 })
       });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Erreur lors de l\'analyse');
+      }
+
+      // Remplacement par l'image officielle TCG si elle existe
+      if (data.imageUrl) {
+        cardImg.src = data.imageUrl;
+      }
+
+      // Remplissage des résultats
+      resName.textContent = data.cardName;
+      resSet.textContent = data.setName;
+      resPrice.textContent = data.estimatedPrice ? `${data.estimatedPrice.toFixed(2)} €` : 'Indisponible';
+
+      resultsBox.classList.add('active');
+
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.style.display = 'block';
+    } finally {
+      loader.style.display = 'none';
+      scanBtn.disabled = false;
     }
+  });
+</script>
 
-    fileInput.addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-
-      resultDiv.textContent = 'Optimisation de la photo...';
-      addBtn.style.display = 'none';
-      tcgBox.style.display = 'none';
-
-      try {
-        base64Image = await compressImage(file);
-        userPreview.src = base64Image;
-        previewContainer.style.display = 'flex';
-        scanBtn.style.display = 'block';
-        resultDiv.textContent = 'Photo prête pour l\'analyse.';
-      } catch (err) {
-        resultDiv.textContent = 'Erreur lors de la lecture du fichier.';
-      }
-    });
-
-    // Envoi au scan
-    scanBtn.addEventListener('click', async () => {
-      resultDiv.textContent = 'Recherche TCG et calcul de la côte...';
-      try {
-        const response = await fetch('/api/scan', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: base64Image })
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.error || `Erreur serveur (${response.status})`);
-        }
-
-        currentScannedCard = {
-          name: data.cardName || 'Dracaufeu',
-          set: data.setName || 'Set de Base',
-          price: Number(data.estimatedPrice) || 15.00,
-          imageUrl: data.imageUrl || '', 
-          userImage: base64Image
-        };
-
-        // Affichage de l'image officielle TCG si renvoyée par l'API
-        if (currentScannedCard.imageUrl) {
-          tcgPreview.src = currentScannedCard.imageUrl;
-          tcgBox.style.display = 'block';
-        }
-
-        resultDiv.innerHTML = `
-          <div class="card-info">${currentScannedCard.name}</div>
-          <div>Extension : ${currentScannedCard.set}</div>
-          <div style="margin-top: 4px;">Côte estimée : <span class="price-tag">${currentScannedCard.price.toFixed(2)} €</span></div>
-        `;
-        addBtn.style.display = 'block';
-      } catch (err) {
-        resultDiv.textContent = 'Erreur lors de l\'envoi : ' + err.message;
-      }
-    });
-
-    // Ajout à la collection
-    addBtn.addEventListener('click', () => {
-      if (!currentScannedCard) return;
-      const collection = getCollection();
-      collection.unshift(currentScannedCard);
-      saveCollection(collection);
-      addBtn.style.display = 'none';
-      resultDiv.textContent = 'Carte ajoutée à votre collection !';
-    });
-
-    // Chargement initial
-    renderCollection();
-  </script>
 </body>
 </html>
