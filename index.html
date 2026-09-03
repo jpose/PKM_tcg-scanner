@@ -4,175 +4,83 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Scanner Carte Pokémon</title>
-  <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    }
-
-    body {
-      background-color: #0f172a;
-      color: #f8fafc;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      min-height: 100vh;
-      padding: 20px;
-    }
-
-    h1 {
-      font-size: 1.5rem;
-      margin-bottom: 20px;
-      color: #38bdf8;
-    }
-
-    .container {
-      width: 100%;
-      max-width: 400px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 15px;
-    }
-
-    #camera-view, #result-view {
-      width: 100%;
-      background-color: #1e293b;
-      border-radius: 12px;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
-    }
-
-    video {
-      width: 100%;
-      height: 350px;
-      object-fit: cover;
-    }
-
-    .btn {
-      width: 100%;
-      padding: 14px;
-      border: none;
-      border-radius: 8px;
-      background-color: #0284c7;
-      color: white;
-      font-size: 1rem;
-      font-weight: bold;
-      cursor: pointer;
-    }
-
-    .btn:active {
-      background-color: #0369a1;
-    }
-
-    .hidden {
-      display: none !important;
-    }
-
-    .card-info {
-      padding: 20px;
-      width: 100%;
-      text-align: center;
-    }
-
-    .card-image {
-      max-width: 200px;
-      border-radius: 8px;
-      margin-bottom: 15px;
-      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
-    }
-
-    .card-title {
-      font-size: 1.25rem;
-      font-weight: bold;
-      margin-bottom: 5px;
-    }
-
-    .card-set {
-      color: #94a3b8;
-      font-size: 0.9rem;
-      margin-bottom: 15px;
-    }
-
-    .card-price {
-      font-size: 1.5rem;
-      color: #4ade80;
-      font-weight: bold;
-      margin-bottom: 15px;
-    }
-
-    .loader {
-      padding: 20px;
-      text-align: center;
-      color: #38bdf8;
-      font-weight: bold;
-    }
-
-    .error-msg {
-      color: #f87171;
-      padding: 15px;
-      text-align: center;
-    }
-  </style>
+  <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body>
+<body class="bg-slate-900 text-white min-h-screen flex flex-col items-center justify-center p-4">
 
-  <div class="container">
-    <h1>Scanner de Carte Pokémon</h1>
+  <div class="max-w-md w-full bg-slate-800 rounded-2xl shadow-xl overflow-hidden border border-slate-700 p-6 flex flex-col items-center">
+    
+    <h1 class="text-2xl font-bold mb-4 text-center text-amber-400">Scanner de Carte Pokémon</h1>
 
     <!-- Vue Caméra -->
-    <div id="camera-view">
-      <video id="webcam" autoplay playsinline></video>
-      <div style="padding: 15px; width: 100%;">
-        <button id="scan-btn" class="btn">Prendre en photo & Scanner</button>
+    <div id="cameraView" class="w-full flex flex-col items-center">
+      <div class="relative w-full aspect-[3/4] bg-black rounded-xl overflow-hidden mb-4 border-2 border-amber-400/50">
+        <video id="video" autoplay playsinline class="w-full h-full object-cover"></video>
       </div>
+      <button id="captureBtn" onclick="captureAndScan()" class="w-full py-3 bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold rounded-xl shadow-lg transition duration-200">
+        Prendre la photo
+      </button>
     </div>
 
-    <!-- Indicateur de chargement -->
-    <div id="loading" class="loader hidden">Analyse de la carte en cours...</div>
+    <!-- Vue Chargement -->
+    <div id="loadingView" class="hidden w-full flex flex-col items-center justify-center py-12">
+      <div class="animate-spin rounded-full h-16 w-16 border-b-2 border-amber-400 mb-4"></div>
+      <p class="text-slate-300 font-medium">Analyse de la carte en cours...</p>
+    </div>
 
     <!-- Vue Résultat -->
-    <div id="result-view" class="hidden">
-      <div class="card-info">
-        <img id="card-img" class="card-image hidden" src="" alt="Carte Pokémon">
-        <div id="card-name" class="card-title">--</div>
-        <div id="card-set" class="card-set">--</div>
-        <div id="card-price" class="card-price">-- €</div>
-        <div id="error-box" class="error-msg hidden"></div>
-        <button id="retry-btn" class="btn" style="margin-top: 10px;">Scanner une autre carte</button>
+    <div id="resultView" class="hidden w-full flex flex-col items-center">
+      
+      <!-- Box Erreur -->
+      <div id="errorBox" class="hidden w-full p-4 mb-4 bg-red-900/50 border border-red-500 rounded-xl text-red-200 text-sm"></div>
+
+      <!-- Informations Carte -->
+      <img id="cardImg" src="" alt="Image de la carte" class="w-48 rounded-lg shadow-md mb-4 hidden border border-slate-600">
+      
+      <h2 id="cardName" class="text-xl font-bold text-center mb-1"></h2>
+      <p id="cardSet" class="text-slate-400 text-sm text-center mb-4"></p>
+      
+      <div class="bg-slate-700/50 px-6 py-3 rounded-xl border border-slate-600 mb-6 text-center w-full">
+        <span class="text-xs text-slate-400 uppercase tracking-wider block">Prix estimé</span>
+        <span id="cardPrice" class="text-2xl font-black text-amber-400"></span>
       </div>
+
+      <button onclick="startCamera()" class="w-full py-3 bg-slate-700 hover:bg-slate-600 font-bold rounded-xl transition duration-200">
+        Scanner une autre carte
+      </button>
     </div>
+
   </div>
 
   <script>
-    const video = document.getElementById('webcam');
-    const scanBtn = document.getElementById('scan-btn');
-    const retryBtn = document.getElementById('retry-btn');
-    const cameraView = document.getElementById('camera-view');
-    const resultView = document.getElementById('result-view');
-    const loadingView = document.getElementById('loading');
-
-    const cardImg = document.getElementById('card-img');
-    const cardName = document.getElementById('card-name');
-    const cardSet = document.getElementById('card-set');
-    const cardPrice = document.getElementById('card-price');
-    const errorBox = document.getElementById('error-box');
+    const video = document.getElementById('video');
+    const cameraView = document.getElementById('cameraView');
+    const loadingView = document.getElementById('loadingView');
+    const resultView = document.getElementById('resultView');
+    const errorBox = document.getElementById('errorBox');
+    const cardImg = document.getElementById('cardImg');
+    const cardName = document.getElementById('cardName');
+    const cardSet = document.getElementById('cardSet');
+    const cardPrice = document.getElementById('cardPrice');
 
     let currentStream = null;
 
     async function startCamera() {
+      resultView.classList.add('hidden');
+      loadingView.classList.add('hidden');
+      cameraView.classList.remove('hidden');
+      errorBox.classList.add('hidden');
+
       try {
         currentStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment', width: { ideal: 1280 } }
+          video: { facingMode: 'environment' },
+          audio: false
         });
         video.srcObject = currentStream;
       } catch (err) {
-        alert("Accès à la caméra refusé ou non supporté : " + err.message);
+        showError("Impossible d'accéder à la caméra : " + err.message);
+        cameraView.classList.add('hidden');
+        resultView.classList.remove('hidden');
       }
     }
 
@@ -180,16 +88,20 @@
       if (currentStream) {
         currentStream.getTracks().forEach(track => track.stop());
         currentStream = null;
-        video.srcObject = null;
       }
+    }
+
+    function showError(message) {
+      errorBox.textContent = message;
+      errorBox.classList.remove('hidden');
     }
 
     async function captureAndScan() {
       if (!currentStream) return;
 
-      // 1. Capture et compression de la photo à une taille raisonnable (max 800px)
+      // Redimensionnement à 600px max pour alléger le transfert
       const canvas = document.createElement('canvas');
-      const maxDim = 800;
+      const maxDim = 600;
       let w = video.videoWidth || 640;
       let h = video.videoHeight || 480;
 
@@ -209,13 +121,11 @@
       const ctx = canvas.getContext('2d');
       ctx.drawImage(video, 0, 0, w, h);
 
-      // Qualité JPEG à 0.75 pour garantir un envoi ultra-rapide
-      const imageData = canvas.toDataURL('image/jpeg', 0.75);
+      // Compression JPEG à 0.5 (fichier très léger, parfait pour l'OCR)
+      const imageData = canvas.toDataURL('image/jpeg', 0.5);
 
-      // 2. Couper immédiatement l'appareil photo
       stopCamera();
 
-      // 3. Basculer la vue
       cameraView.classList.add('hidden');
       loadingView.classList.remove('hidden');
 
@@ -226,7 +136,19 @@
           body: JSON.stringify({ image: imageData })
         });
 
-        const data = await response.json();
+        const responseText = await response.text();
+        let data;
+
+        // Validation du format JSON pour éviter le crash en cas d'erreur HTML/Texte
+        try {
+          data = JSON.parse(responseText);
+        } catch (e) {
+          loadingView.classList.add('hidden');
+          resultView.classList.remove('hidden');
+          showError('Erreur serveur (réponse non-JSON) : ' + responseText.slice(0, 100));
+          return;
+        }
+
         loadingView.classList.add('hidden');
         resultView.classList.remove('hidden');
 
@@ -254,24 +176,8 @@
       }
     }
 
-    function showError(msg) {
-      errorBox.textContent = msg;
-      errorBox.classList.remove('hidden');
-      cardName.textContent = 'Erreur';
-      cardSet.textContent = '';
-      cardPrice.textContent = '';
-      cardImg.classList.add('hidden');
-    }
-
-    scanBtn.addEventListener('click', captureAndScan);
-
-    retryBtn.addEventListener('click', () => {
-      resultView.classList.add('hidden');
-      cameraView.classList.remove('hidden');
-      startCamera();
-    });
-
-    startCamera();
+    // Lancement de la caméra à l'ouverture de la page
+    window.addEventListener('DOMContentLoaded', startCamera);
   </script>
 </body>
 </html>
