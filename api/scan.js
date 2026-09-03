@@ -24,7 +24,7 @@ export default async function handler(req, res) {
 
     const keysToTry = availableKeys.sort(() => Math.random() - 0.5);
 
-    // 2. MODÈLES GEMINI ORIGINAUX
+    // 2. MODÈLES GEMINI
     const modelsToTry = [
       'gemini-flash-latest',
       'gemini-2.5-flash',
@@ -34,8 +34,8 @@ export default async function handler(req, res) {
     const base64 = image.split(',')[1] || image;
     const mimeType = image.match(/data:(.*?);/)?.[1] || 'image/jpeg';
 
-    const prompt = `Analyse cette image de carte Pokémon. Renvoie UNIQUEMENT un objet JSON valide sans Markdown, sous cette forme :
-{"fr": "NomFrançais", "en": "NomAnglais", "num": "Numero"}`;
+    const prompt = `Analyse cette image de carte Pokémon. Renvoie UNIQUEMENT un objet JSON valide sans Markdown :
+{"fr": "NomFrançais", "en": "NomAnglais", "num": "Numero", "set_name": "NomExtensionVisible"}`;
 
     let rawResultText = null;
 
@@ -70,7 +70,7 @@ export default async function handler(req, res) {
             if (rawResultText) break keyLoop;
           }
         } catch (err) {
-          // Continue au modèle/clé suivant
+          // Continue au suivant
         }
       }
     }
@@ -79,60 +79,72 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: 'L\'IA n\'a pas pu analyser l\'image.' });
     }
 
-    // 4. PARSING DE LA RÉPONSE IA
+    // 4. PARSING RÉPONSE IA
     let cardData = {};
     try {
       const cleanJson = rawResultText.replace(/```json/g, '').replace(/```/g, '').trim();
       cardData = JSON.parse(cleanJson);
     } catch (e) {
-      return res.status(500).json({ error: 'Erreur lors du décodage de la réponse IA.' });
+      return res.status(500).json({ error: 'Erreur de décodage de l\'IA.' });
     }
 
     const nomEn = (cardData.en || '').trim();
     const nomFr = (cardData.fr || nomEn).trim();
     const numRaw = (cardData.num || '').split('/')[0].trim();
-    const numClean = numRaw.replace(/^0+/, '').trim();
+    const detectedSet = (cardData.set_name || 'Série Récente').trim();
 
     if (!nomEn) {
-      return res.status(400).json({ error: 'Nom de carte illisible. Prenez une photo plus nette.' });
+      return res.status(400).json({ error: 'Nom de carte illisible.' });
     }
 
-    // 5. RECHERCHE TCG (SYNTAXE STRICTE TCG API)
-    // On nettoie le nom pour garder uniquement les lettres et espaces
+    // 5. RECHERCHE SUR L'API TCG
     const searchName = nomEn.replace(/[^a-zA-Z0-9 ]/g, '').trim();
+    const numAsInt = parseInt(numRaw, 10);
+    const numIntStr = !isNaN(numAsInt) ? numAsInt.toString() : '';
 
-    // Construction des requêtes dans l'ordre de précision
     let queries = [];
-    if (numClean) {
-      queries.push(`name:${searchName} number:${numClean}`);
-    }
-    if (numRaw && numRaw !== numClean) {
-      queries.push(`name:${searchName} number:${numRaw}`);
-    }
+    if (numIntStr) queries.push(`name:${searchName} number:${numIntStr}`);
+    if (numRaw && numRaw !== numIntStr) queries.push(`name:${searchName} number:${numRaw}`);
     queries.push(`name:${searchName}`);
 
-    let cardsFound = [];
+    let candidates = [];
 
     for (const q of queries) {
       try {
         const urlTCG = `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(q)}`;
-        
-        const tcgRes = await fetch(urlTCG, { 
-          signal: AbortSignal.timeout(6000) 
-        });
+        const tcgRes = await fetch(urlTCG, { signal: AbortSignal.timeout(6000) });
 
         if (tcgRes.ok) {
           const tcgData = await tcgRes.json();
           const results = tcgData.data || [];
 
-          // VERIFICATION : on s'assure que le résultat contient VRAIMENT le nom cherché
           const valid = results.filter(c => 
             c.name.toLowerCase().includes(searchName.toLowerCase())
           );
 
           if (valid.length > 0) {
-            cardsFound = valid;
-            break; // Succès !
+            candidates = valid.slice(0, 8).map(c => {
+              let price = 0;
+              if (c.cardmarket?.prices) {
+                const cm = c.cardmarket.prices;
+                price = cm.trendPrice || cm.avg1 || cm.averageSellPrice || cm.lowPrice || 0;
+              } else if (c.tcgplayer?.prices) {
+                const tp = c.tcgplayer.prices;
+                const variant = tp.normal || tp.holofoil || tp.reverseHolofoil || tp.unlimited || {};
+                const usdPrice = variant.market || variant.mid || 0;
+                price = usdPrice * 0.92;
+              }
+
+              return {
+                id: c.id,
+                cardName: `${nomFr} (${c.name})`,
+                setName: `${c.set.name} — ${c.number}/${c.set.printedTotal}`,
+                number: c.number,
+                price: Number(price.toFixed(2)),
+                imageUrl: c.images?.large || c.images?.small
+              };
+            });
+            break;
           }
         }
       } catch (e) {
@@ -140,38 +152,21 @@ export default async function handler(req, res) {
       }
     }
 
-    if (cardsFound.length === 0) {
-      return res.status(404).json({
-        error: `Aucune carte TCG trouvée pour "${nomFr}" (${nomEn}) #${numRaw || 'inconnu'}.`
-      });
+    // 6. SECOURS SI LA SERIE N'EST PAS ENCORE DANS L'API TCG
+    if (candidates.length === 0) {
+      candidates = [{
+        id: `custom-${Date.now()}`,
+        cardName: `${nomFr} (${nomEn})`,
+        setName: `${detectedSet} — #${numRaw || '?'}` ,
+        number: numRaw || '?',
+        price: 0.25, // Prix estimé commune récents
+        imageUrl: image
+      }];
     }
-
-    // 6. FORMATAGE DES RÉSULTATS
-    const candidates = cardsFound.slice(0, 8).map(c => {
-      let price = 0;
-      if (c.cardmarket?.prices) {
-        const cm = c.cardmarket.prices;
-        price = cm.trendPrice || cm.avg1 || cm.averageSellPrice || cm.lowPrice || 0;
-      } else if (c.tcgplayer?.prices) {
-        const tp = c.tcgplayer.prices;
-        const variant = tp.normal || tp.holofoil || tp.reverseHolofoil || tp.unlimited || {};
-        const usdPrice = variant.market || variant.mid || 0;
-        price = usdPrice * 0.92;
-      }
-
-      return {
-        id: c.id,
-        cardName: `${nomFr} (${c.name})`,
-        setName: `${c.set.name} — ${c.number}/${c.set.printedTotal}`,
-        number: c.number,
-        price: Number(price.toFixed(2)),
-        imageUrl: c.images?.large || c.images?.small
-      };
-    });
 
     return res.status(200).json({
       detectedName: nomFr,
-      detectedNum: numRaw || numClean,
+      detectedNum: numRaw,
       candidates: candidates
     });
 
