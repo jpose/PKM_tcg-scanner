@@ -15,12 +15,12 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Clé GEMINI_API_KEY manquante dans Vercel.' });
     }
 
-    // 1. Extraction des données base64 de l'image
+    // 1. Extraction et nettoyage des données Base64
     const base64Data = image.split(',')[1] || image;
     const mimeType = image.split(';')[0].split(':')[1] || 'image/jpeg';
 
-    // 2. Appel à l'API gratuite Gemini 1.5 Flash pour identifier la carte
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
+    // 2. Appel à l'API v1 de Gemini 1.5 Flash
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
 
     const promptText = `Analyse cette image de carte Pokémon TCG.
 Identifie le nom de la carte et son numéro (ex: 4/102 ou 058/102).
@@ -36,8 +36,8 @@ Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans aucun tex
             parts: [
               { text: promptText },
               {
-                inlineData: {
-                  mimeType: mimeType,
+                inline_data: {
+                  mime_type: mimeType,
                   data: base64Data
                 }
               }
@@ -50,10 +50,10 @@ Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans aucun tex
     const geminiData = await geminiResponse.json();
 
     if (!geminiResponse.ok) {
-      throw new Error(geminiData.error?.message || 'Erreur lors de l\'analyse Gemini.');
+      throw new Error(geminiData.error?.message || `Erreur Gemini (${geminiResponse.status})`);
     }
 
-    // Extraction et nettoyage de la réponse JSON de Gemini
+    // Extraction et nettoyage du JSON renvoyé par Gemini
     let rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
     rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
 
@@ -61,12 +61,12 @@ Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans aucun tex
     try {
       parsedInfo = JSON.parse(rawText);
     } catch (e) {
-      throw new Error('Impossible de lire les données renvoyées par Gemini.');
+      throw new Error('Impossible de parser la réponse de Gemini : ' + rawText);
     }
 
     const { cardName, cardNumber } = parsedInfo;
 
-    // 3. Recherche sur l'API gratuite Pokémon TCG
+    // 3. Interrogation de l'API gratuite Pokémon TCG
     let searchQuery = `name:"${cardName}"`;
     if (cardNumber) {
       const cleanNum = cardNumber.split('/')[0].trim();
@@ -78,7 +78,7 @@ Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans aucun tex
 
     const matchedCard = tcgData.data && tcgData.data.length > 0 ? tcgData.data[0] : null;
 
-    // 4. Extraction de la côte Cardmarket (en Euros) ou TCGPlayer
+    // 4. Extraction du prix Cardmarket ou TCGPlayer
     let price = 0;
     if (matchedCard?.cardmarket?.prices?.averageSellPrice) {
       price = matchedCard.cardmarket.prices.averageSellPrice;
@@ -88,7 +88,7 @@ Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans aucun tex
       price = matchedCard.tcgplayer.prices.normal.market;
     }
 
-    // 5. Envoi de la réponse complète
+    // 5. Renvoi du résultat final
     return res.status(200).json({
       success: true,
       cardName: matchedCard ? matchedCard.name : (cardName || 'Carte inconnue'),
