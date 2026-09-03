@@ -1,4 +1,5 @@
 export default async function handler(req, res) {
+  // S'assure que Vercel renvoie TOUJOURS du JSON (évite le token 'A')
   res.setHeader('Content-Type', 'application/json');
 
   if (req.method !== 'POST') {
@@ -17,16 +18,44 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Clé GEMINI_API_KEY manquante dans les variables Vercel.' });
     }
 
-    // 1. Préparation de l'image Base64
+    // 1. Récupération dynamique de la liste des modèles disponibles sur ta clé
+    const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${geminiApiKey}`;
+    const listResponse = await fetch(listUrl);
+    const listData = await listResponse.json();
+
+    if (!listResponse.ok) {
+      return res.status(listResponse.status).json({
+        error: `Impossible de lister les modèles Gemini (${listResponse.status}) : ` + (listData.error?.message || JSON.stringify(listData))
+      });
+    }
+
+    // Cherche un modèle qui supporte generateContent
+    const availableModels = listData.models || [];
+    const validModel = availableModels.find(m => 
+      m.supportedGenerationMethods?.includes('generateContent') &&
+      (m.name.includes('flash') || m.name.includes('pro'))
+    );
+
+    if (!validModel) {
+      return res.status(404).json({
+        error: 'Aucun modèle compatible generateContent trouvé sur cette clé API.',
+        availableModels: availableModels.map(m => m.name)
+      });
+    }
+
+    // Extrait le nom du modèle (ex: "models/gemini-2.5-flash" -> "gemini-2.5-flash")
+    const modelName = validModel.name.replace('models/', '');
+
+    // 2. Nettoyage de l'image Base64
     const base64Data = image.split(',')[1] || image;
     const mimeType = image.split(';')[0].split(':')[1] || 'image/jpeg';
 
-    // 2. URL de l'API REST Google avec gemini-3.6-flash
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${geminiApiKey}`;
+    // 3. Appel avec le modèle détecté automatiquement
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
 
     const promptText = `Analyse cette image de carte Pokémon TCG.
 Identifie le nom de la carte et son numéro (ex: 4/102 ou 058/102).
-Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans aucun texte ni balise markdown autour :
+Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans aucun texte autour ni balises markdown :
 {"cardName": "Nom de la carte", "cardNumber": "numéro"}`;
 
     const geminiResponse = await fetch(geminiUrl, {
@@ -53,10 +82,57 @@ Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans aucun tex
 
     if (!geminiResponse.ok) {
       return res.status(geminiResponse.status).json({
-        error: `Erreur API Google Gemini (${geminiResponse.status}) : ` + (geminiData.error?.message || JSON.stringify(geminiData))
+        error: `Erreur Gemini avec le modèle ${modelName} (${geminiResponse.status}) : ` + (geminiData.error?.message || JSON.stringify(geminiData))
       });
     }
 
-    // 3. Extraction de la réponse texte
+    // 4. Extraction de la réponse
     let rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    rawText = rawText.replace(/```json/g, '').replace(/
+    rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+
+    let parsedInfo;
+    try {
+      parsedInfo = JSON.parse(rawText);
+    } catch (e) {
+      return res.status(500).json({ error: 'Erreur de décodage JSON : ' + rawText });
+    }
+
+    const { cardName, cardNumber } = parsedInfo;
+
+    // 5. Interrogation de l'API Pokémon TCG
+    let searchQuery = `name:"${cardName}"`;
+    if (cardNumber) {
+      const cleanNum = cardNumber.split('/')[0].trim();
+      searchQuery += ` number:"${cleanNum}"`;
+    }
+
+    const tcgResponse = await fetch(`https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(searchQuery)}`);
+    const tcgData = await tcgResponse.json();
+
+    const matchedCard = tcgData.data && tcgData.data.length > 0 ? tcgData.data[0] : null;
+
+    // 6. Extraction du prix
+    let price = 0;
+    if (matchedCard?.cardmarket?.prices?.averageSellPrice) {
+      price = matchedCard.cardmarket.prices.averageSellPrice;
+    } else if (matchedCard?.tcgplayer?.prices?.holofoil?.market) {
+      price = matchedCard.tcgplayer.prices.holofoil.market;
+    } else if (matchedCard?.tcgplayer?.prices?.normal?.market) {
+      price = matchedCard.tcgplayer.prices.normal.market;
+    }
+
+    return res.status(200).json({
+      success: true,
+      cardName: matchedCard ? matchedCard.name : (cardName || 'Carte inconnue'),
+      setName: matchedCard ? `${matchedCard.set.name} (${matchedCard.number}/${matchedCard.set.printedTotal})` : 'Extension non trouvée',
+      estimatedPrice: price || 0,
+      imageUrl: matchedCard ? matchedCard.images.large : '',
+      modelUsed: modelName
+    });
+
+  } catch (error) {
+    return res.status(500).json({ 
+      error: 'Erreur serveur : ' + error.message 
+    });
+  }
+}
