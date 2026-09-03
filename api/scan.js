@@ -1,5 +1,5 @@
 export const config = {
-  maxDuration: 30, // Tolérance de durée pour Vercel
+  maxDuration: 30,
 };
 
 export default async function handler(req, res) {
@@ -13,10 +13,9 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Aucune image transmise.' });
     }
 
-    // 1. GESTION DES CLÉS GEMINI (Load Balancing + Fallback)
+    // 1. CLÉS API GEMINI
     const key1 = process.env.GEMINI_API_KEY_1;
     const key2 = process.env.GEMINI_API_KEY_2;
-    
     const availableKeys = [key1, key2].filter(Boolean);
 
     if (availableKeys.length === 0) {
@@ -25,8 +24,14 @@ export default async function handler(req, res) {
       });
     }
 
-    // Mélange aléatoire pour répartir la charge (50/50)
     const keysToTry = availableKeys.sort(() => Math.random() - 0.5);
+
+    // 2. MODÈLES ACTIFS D'APRÈS TON COMPTE
+    const modelsToTry = [
+      'gemini-flash-latest',
+      'gemini-2.5-flash',
+      'gemini-3.5-flash'
+    ];
 
     const base64 = image.split(',')[1] || image;
     const mimeType = image.match(/data:(.*?);/)?.[1] || 'image/jpeg';
@@ -36,57 +41,58 @@ export default async function handler(req, res) {
     - "en": Le nom de la carte en anglais (très important).
     - "num": Le numéro de la carte (ex: "25" si "025/185"). S'il n'y a pas de numéro, mets "".`;
 
-    // 2. EXÉCUTION DE LA REQUÊTE GEMINI (API REST v1)
     let rawResultText = null;
     let lastError = null;
 
-    for (const apiKey of keysToTry) {
-      try {
-        // Endpoint REST v1 de Google
-        const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    // 3. EXÉCUTION (Boucle sur clés et modèles disponibles)
+    keyLoop: for (const apiKey of keysToTry) {
+      for (const model of modelsToTry) {
+        try {
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-        const geminiRes = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{
-              parts: [
-                { text: prompt },
-                { inline_data: { mime_type: mimeType, data: base64 } }
-              ]
-            }],
-            generationConfig: {
-              responseMimeType: 'application/json', // Syntaxe v1
-              temperature: 0.1
-            }
-          }),
-          signal: AbortSignal.timeout(8000)
-        });
+          const geminiRes = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{
+                parts: [
+                  { text: prompt },
+                  { inline_data: { mime_type: mimeType, data: base64 } }
+                ]
+              }],
+              generationConfig: {
+                response_mime_type: 'application/json',
+                temperature: 0.1
+              }
+            }),
+            signal: AbortSignal.timeout(8000)
+          });
 
-        if (!geminiRes.ok) {
-          const errText = await geminiRes.text();
-          throw new Error(`Erreur Gemini HTTP ${geminiRes.status}: ${errText.slice(0, 100)}`);
+          if (!geminiRes.ok) {
+            const errText = await geminiRes.text();
+            throw new Error(`HTTP ${geminiRes.status} (${model}): ${errText.slice(0, 100)}`);
+          }
+
+          const geminiData = await geminiRes.json();
+          rawResultText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+
+          if (rawResultText) {
+            break keyLoop;
+          }
+        } catch (err) {
+          lastError = err;
+          console.warn(`Échec (${model}): ${err.message}`);
         }
-
-        const geminiData = await geminiRes.json();
-        rawResultText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
-
-        if (rawResultText) {
-          break; // Succès ! On sort de la boucle de secours
-        }
-      } catch (err) {
-        lastError = err;
-        console.warn(`Échec clé Gemini (v1): ${err.message}`);
       }
     }
 
     if (!rawResultText) {
       return res.status(502).json({ 
-        error: `Impossible de scanner la carte avec l'API Gemini : ${lastError?.message || 'Toutes les clés ont échoué'}` 
+        error: `Erreur API Gemini : ${lastError?.message || 'Tous les modèles ont échoué.'}` 
       });
     }
 
-    // 3. PARSING DU JSON GEMINI
+    // 4. PARSING JSON
     let cardData = {};
     try {
       cardData = JSON.parse(rawResultText);
@@ -98,14 +104,13 @@ export default async function handler(req, res) {
     const nomFr = cardData.fr || nomEn;
     let num = cardData.num || '';
 
-    // Nettoyage du numéro de carte
     if (num.includes('/')) {
       num = num.split('/')[0].replace(/^0+/, '');
     } else {
       num = num.replace(/^0+/, '');
     }
 
-    // 4. INTERROGATION DE L'API POKÉMON TCG
+    // 5. APPEL API POKÉMON TCG
     let tcgCard = null;
 
     if (nomEn || num) {
@@ -133,11 +138,11 @@ export default async function handler(req, res) {
           }
         }
       } catch (tcgErr) {
-        console.warn('API Pokémon TCG hors délai ou inaccessible');
+        console.warn('API Pokémon TCG hors délai');
       }
     }
 
-    // 5. CALCUL DE LA COTE (CARDMARKET EUR / TCGPLAYER USD)
+    // 6. CALCUL COTE
     let price = 0;
     if (tcgCard?.cardmarket?.prices) {
       const cm = tcgCard.cardmarket.prices;
@@ -148,7 +153,6 @@ export default async function handler(req, res) {
       price = usdPrice * 0.9;
     }
 
-    // 6. ENVOI DE LA RÉPONSE AU FRONTEND
     return res.status(200).json({
       cardName: tcgCard ? `${nomFr} (${tcgCard.name})` : (nomFr || 'Carte inconnue'),
       setName: tcgCard ? `${tcgCard.set.name} — ${tcgCard.number}/${tcgCard.set.printedTotal}` : 'Extension introuvable',
