@@ -3,12 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Application de Scan</title>
+  <title>TCG Scan & Collection</title>
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#2563eb">
   <style>
     :root {
       --primary: #2563eb;
+      --success: #059669;
       --bg: #f8fafc;
       --text: #0f172a;
     }
@@ -21,6 +22,8 @@
       display: flex;
       flex-direction: column;
       align-items: center;
+      min-height: 100vh;
+      box-sizing: border-box;
     }
     .container {
       max-width: 480px;
@@ -29,15 +32,15 @@
       padding: 1.5rem;
       border-radius: 12px;
       box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+      margin-bottom: 1.5rem;
+      box-sizing: border-box;
     }
     img.logo {
       display: block;
       max-width: 120px;
       margin: 0 auto 1rem;
     }
-    input[type="file"] {
-      display: none;
-    }
+    input[type="file"] { display: none; }
     .btn {
       display: block;
       width: 100%;
@@ -49,8 +52,10 @@
       font-weight: 600;
       cursor: pointer;
       border: none;
-      margin-top: 1rem;
+      margin-top: 0.75rem;
+      box-sizing: border-box;
     }
+    .btn-success { background: var(--success); }
     #preview {
       width: 100%;
       border-radius: 8px;
@@ -66,21 +71,60 @@
       white-space: pre-wrap;
       word-break: break-all;
     }
+    .card-info {
+      font-size: 1rem;
+      font-weight: bold;
+      margin-bottom: 0.5rem;
+    }
+    .price-tag {
+      color: var(--success);
+      font-size: 1.25rem;
+      font-weight: bold;
+    }
+    .collection-list {
+      list-style: none;
+      padding: 0;
+      margin-top: 1rem;
+    }
+    .collection-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    footer {
+      margin-top: auto;
+      padding-top: 1rem;
+      font-size: 0.8rem;
+      color: #64748b;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <img src="logo.jpg" alt="Logo" class="logo">
-    <h1 style="text-align: center; font-size: 1.25rem;">Scanner un document</h1>
+    <h1 style="text-align: center; font-size: 1.25rem;">Scan de Carte TCG</h1>
     
-    <label for="file-input" class="btn">Choisir ou prendre une photo</label>
+    <label for="file-input" class="btn">Scanner une carte</label>
     <input type="file" id="file-input" accept="image/*" capture="environment">
 
-    <img id="preview" alt="Aperçu de l'image">
-    <button id="scan-btn" class="btn" style="display:none; background:#059669;">Lancer le scan</button>
+    <img id="preview" alt="Aperçu de la carte">
+    <button id="scan-btn" class="btn btn-success" style="display:none;">Obtenir la côte</button>
 
-    <div id="result">En attente d'une image...</div>
+    <div id="result">Prenez une carte en photo pour l'analyser.</div>
+    <button id="add-btn" class="btn" style="display:none; background:#4f46e5;">Ajouter à ma collection</button>
   </div>
+
+  <div class="container">
+    <h2 style="font-size: 1.1rem; margin-top:0;">Ma Collection (<span id="total-value">0,00 €</span>)</h2>
+    <ul id="collection" class="collection-list"></ul>
+  </div>
+
+  <footer>
+    Version <span id="app-version">1.1.0</span>
+  </footer>
 
   <script>
     // Enregistrement du Service Worker
@@ -93,10 +137,60 @@
     const fileInput = document.getElementById('file-input');
     const preview = document.getElementById('preview');
     const scanBtn = document.getElementById('scan-btn');
+    const addBtn = document.getElementById('add-btn');
     const resultDiv = document.getElementById('result');
-    let base64Image = '';
+    const collectionUl = document.getElementById('collection');
+    const totalValueSpan = document.getElementById('total-value');
 
-    // Fonction pour redimensionner et compresser l'image avant l'envoi
+    let base64Image = '';
+    let currentScannedCard = null;
+
+    // Gestion de la collection (LocalStorage)
+    function getCollection() {
+      return JSON.parse(localStorage.getItem('tcg_collection') || '[]');
+    }
+
+    function saveCollection(collection) {
+      localStorage.setItem('tcg_collection', JSON.stringify(collection));
+      renderCollection();
+    }
+
+    function renderCollection() {
+      const collection = getCollection();
+      collectionUl.innerHTML = '';
+      let total = 0;
+
+      if (collection.length === 0) {
+        collectionUl.innerHTML = '<li style="color: #94a3b8; font-size: 0.9rem;">Aucune carte enregistrée.</li>';
+      }
+
+      collection.forEach((item, index) => {
+        total += item.price;
+        const li = document.createElement('li');
+        li.className = 'collection-item';
+        li.innerHTML = `
+          <div>
+            <strong>${item.name}</strong> <br>
+            <small style="color:#64748b;">${item.set}</small>
+          </div>
+          <div>
+            <span style="font-weight:600;">${item.price.toFixed(2)} €</span>
+            <button onclick="removeCard(${index})" style="background:none;border:none;color:#ef4444;cursor:pointer;margin-left:8px;font-weight:bold;">✕</button>
+          </div>
+        `;
+        collectionUl.appendChild(li);
+      });
+
+      totalValueSpan.textContent = `${total.toFixed(2)} €`;
+    }
+
+    window.removeCard = function(index) {
+      const collection = getCollection();
+      collection.splice(index, 1);
+      saveCollection(collection);
+    };
+
+    // Compression d'image avant envoi pour éviter les erreurs d'API (Payload Too Large)
     function compressImage(file, maxWidth = 1024, quality = 0.7) {
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -118,8 +212,6 @@
             canvas.height = height;
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, width, height);
-
-            // Exportation au format JPEG compressé
             resolve(canvas.toDataURL('image/jpeg', quality));
           };
           img.onerror = (err) => reject(err);
@@ -128,12 +220,12 @@
       });
     }
 
-    // Gestion du choix de fichier
     fileInput.addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
 
       resultDiv.textContent = 'Optimisation de l\'image...';
+      addBtn.style.display = 'none';
       try {
         base64Image = await compressImage(file);
         preview.src = base64Image;
@@ -145,9 +237,9 @@
       }
     });
 
-    // Envoi du scan
+    // Scan et estimation de la côte
     scanBtn.addEventListener('click', async () => {
-      resultDiv.textContent = 'Analyse en cours...';
+      resultDiv.textContent = 'Identification et calcul de la côte...';
       try {
         const response = await fetch('/api/scan', {
           method: 'POST',
@@ -161,11 +253,36 @@
           throw new Error(data.error || `Erreur serveur (${response.status})`);
         }
 
-        resultDiv.textContent = JSON.stringify(data, null, 2);
+        // Récupération des données estimées ou valeurs par défaut retournées par l'API
+        currentScannedCard = {
+          name: data.cardName || 'Carte détectée',
+          set: data.setName || 'Extension inconnue',
+          price: Number(data.estimatedPrice) || 0
+        };
+
+        resultDiv.innerHTML = `
+          <div class="card-info">${currentScannedCard.name}</div>
+          <div>Extension : ${currentScannedCard.set}</div>
+          <div>Côte estimée : <span class="price-tag">${currentScannedCard.price.toFixed(2)} €</span></div>
+        `;
+        addBtn.style.display = 'block';
       } catch (err) {
         resultDiv.textContent = 'Erreur lors de l\'envoi : ' + err.message;
       }
     });
+
+    // Ajout à la collection
+    addBtn.addEventListener('click', () => {
+      if (!currentScannedCard) return;
+      const collection = getCollection();
+      collection.push(currentScannedCard);
+      saveCollection(collection);
+      addBtn.style.display = 'none';
+      resultDiv.textContent = 'Carte ajoutée à votre collection !';
+    });
+
+    // Chargement initial
+    renderCollection();
   </script>
 </body>
 </html>
