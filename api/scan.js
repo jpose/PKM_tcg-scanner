@@ -13,7 +13,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Aucune image transmise.' });
     }
 
-    // 1. CLÉS API GEMINI
+    // 1. CLÉS GEMINI
     const key1 = process.env.GEMINI_API_KEY_1;
     const key2 = process.env.GEMINI_API_KEY_2;
     const availableKeys = [key1, key2].filter(Boolean);
@@ -91,14 +91,11 @@ export default async function handler(req, res) {
     const nomEn = (cardData.en || '').trim();
     const nomFr = (cardData.fr || nomEn).trim();
     const numRaw = (cardData.num || '').split('/')[0].trim();
-    const detectedSet = (cardData.set_name || 'Extension inconnue').trim();
+    const detectedSet = (cardData.set_name || 'Extension récente').trim();
 
     if (!nomEn) {
       return res.status(400).json({ error: 'Nom de carte illisible.' });
     }
-
-    // VÉRIFICATION STRICTE : Est-ce qu'on scanne VRAIMENT un Dracaufeu ?
-    const isActuallyCharizard = nomEn.toLowerCase().includes('charizard') || nomFr.toLowerCase().includes('dracaufeu');
 
     // 5. RECHERCHE SUR L'API TCG
     const searchName = nomEn.replace(/[^a-zA-Z0-9 ]/g, '').trim();
@@ -121,22 +118,13 @@ export default async function handler(req, res) {
           const tcgData = await tcgRes.json();
           const results = tcgData.data || [];
 
-          // BANNISSEMENT ABSOLU DE DRACAUFEU SI CE N'EST PAS UN DRACAUFEU
-          const cleanResults = results.filter(c => {
-            const cardName = c.name.toLowerCase();
-            const targetName = searchName.toLowerCase();
+          // VERROU STRICT : Ne garder que si le nom correspond VRAIMENT
+          const validResults = results.filter(c => 
+            c.name.toLowerCase().includes(searchName.toLowerCase())
+          );
 
-            // S'il s'agit d'un Charizard renvoyé par erreur par l'API
-            if (!isActuallyCharizard && cardName.includes('charizard')) {
-              return false; // REJET IMMÉDIAT
-            }
-
-            // Vérifie qu'il y a une vraie correspondance de nom
-            return cardName.includes(targetName);
-          });
-
-          if (cleanResults.length > 0) {
-            candidates = cleanResults.slice(0, 8).map(c => {
+          if (validResults.length > 0) {
+            candidates = validResults.slice(0, 8).map(c => {
               let price = 0;
               if (c.cardmarket?.prices) {
                 const cm = c.cardmarket.prices;
@@ -157,7 +145,7 @@ export default async function handler(req, res) {
                 imageUrl: c.images?.large || c.images?.small
               };
             });
-            break; // On a de vrais résultats valides, on arrête la recherche
+            break;
           }
         }
       } catch (e) {
@@ -165,7 +153,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // 6. PLAN B : SI CARTE NON TROUVÉE OU SI TOUT A ÉTÉ FILTRÉ (PAS DE DRACAUFEU DE SECOURS)
+    // 6. PLAN B : Si l'API TCG renvoie vide ou un faux résultat (Dracaufeu rejeté)
     if (candidates.length === 0) {
       candidates = [{
         id: `custom-${Date.now()}`,
