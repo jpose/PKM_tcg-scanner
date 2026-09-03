@@ -13,20 +13,18 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Aucune image transmise.' });
     }
 
-    // 1. CLÉS API GEMINI
+    // 1. CLÉS GEMINI
     const key1 = process.env.GEMINI_API_KEY_1;
     const key2 = process.env.GEMINI_API_KEY_2;
     const availableKeys = [key1, key2].filter(Boolean);
 
     if (availableKeys.length === 0) {
-      return res.status(500).json({ 
-        error: 'Aucune clé API configurée dans Vercel.' 
-      });
+      return res.status(500).json({ error: 'Clé API Gemini introuvable dans Vercel.' });
     }
 
     const keysToTry = availableKeys.sort(() => Math.random() - 0.5);
 
-    // 2. MODÈLES
+    // 2. MODÈLES A TESTER
     const modelsToTry = [
       'gemini-flash-latest',
       'gemini-2.5-flash',
@@ -36,15 +34,15 @@ export default async function handler(req, res) {
     const base64 = image.split(',')[1] || image;
     const mimeType = image.match(/data:(.*?);/)?.[1] || 'image/jpeg';
 
-    const prompt = `Tu es un scanner de cartes Pokémon. Regarde cette photo de carte et renvoie EXCLUSIVEMENT un objet JSON avec ces clés :
-    - "fr": Nom du Pokémon en Français (ex: "Rattata", "Pikachu").
-    - "en": Nom du Pokémon en Anglais (ex: "Rattata", "Pikachu").
-    - "num": Le numéro de la carte inscrit en bas à droite ou à gauche (ex: "19", "066", "SWSH039"). Ne mets PAS le total (pas de /185). Si aucun numéro visible, mets "".`;
+    const prompt = `Analyse cette image de carte Pokémon. Renvoie STRICTEMENT un JSON valide avec :
+    "fr": Le nom du Pokémon en français.
+    "en": Le nom du Pokémon en anglais.
+    "num": Le numéro exact de la carte (ex: "19" ou "019" ou "SWSH039").`;
 
     let rawResultText = null;
     let lastError = null;
 
-    // 3. APPEL GEMINI
+    // 3. ANALYSE IA
     keyLoop: for (const apiKey of keysToTry) {
       for (const model of modelsToTry) {
         try {
@@ -69,16 +67,10 @@ export default async function handler(req, res) {
             signal: AbortSignal.timeout(15000)
           });
 
-          if (!geminiRes.ok) {
-            const errText = await geminiRes.text();
-            throw new Error(`HTTP ${geminiRes.status} (${model}): ${errText.slice(0, 100)}`);
-          }
-
-          const geminiData = await geminiRes.json();
-          rawResultText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
-
-          if (rawResultText) {
-            break keyLoop;
+          if (geminiRes.ok) {
+            const geminiData = await geminiRes.json();
+            rawResultText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (rawResultText) break keyLoop;
           }
         } catch (err) {
           lastError = err;
@@ -87,83 +79,81 @@ export default async function handler(req, res) {
     }
 
     if (!rawResultText) {
-      return res.status(502).json({ 
-        error: `Erreur d'analyse IA : ${lastError?.message || 'Pas de réponse.'}` 
-      });
+      return res.status(502).json({ error: 'L\'IA n\'a pas pu analyser l\'image.' });
     }
 
-    // 4. PARSING DU JSON
+    // 4. NETTOYAGE STRICT DES DONNÉES DE SOTIE
     let cardData = {};
     try {
       cardData = JSON.parse(rawResultText);
     } catch (e) {
-      return res.status(500).json({ error: 'Lecture JSON impossible.' });
+      return res.status(500).json({ error: 'Erreur parsing JSON IA' });
     }
 
-    const nomEn = (cardData.en || '').trim();
-    const nomFr = (cardData.fr || nomEn).trim();
-    let num = (cardData.num || '').trim();
+    // Extraction et nettoyage du nom anglais
+    let nomEn = (cardData.en || '').replace(/[^a-zA-Z0-9 ]/g, '').trim();
+    let nomFr = (cardData.fr || nomEn).trim();
+    
+    // Nettoyage du numéro
+    let num = (cardData.num || '').split('/')[0].replace(/^0+/, '').trim();
 
-    if (num.includes('/')) {
-      num = num.split('/')[0].trim();
-    }
-    const cleanNum = num.replace(/^0+/, '');
-
-    // 5. RECHERCHE EN CASCADE SUR POKÉMON TCG
-    let cardsFound = [];
-
-    const fetchTcg = async (query) => {
-      try {
-        const res = await fetch(
-          `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(query)}&pageSize=12`,
-          { signal: AbortSignal.timeout(6000) }
-        );
-        if (res.ok) {
-          const data = await res.json();
-          return data.data || [];
-        }
-      } catch (e) {
-        console.warn('Erreur TCG Fetch:', e.message);
-      }
-      return [];
-    };
-
-    const cleanName = nomEn.replace(/[^a-zA-Z0-9 ]/g, '').trim();
-
-    // Étape A: Nom + Numéro
-    if (cleanName && cleanNum) {
-      cardsFound = await fetchTcg(`name:"${cleanName}" number:"${cleanNum}"`);
-    }
-
-    // Étape B: Nom seul si rien trouvé
-    if (cardsFound.length === 0 && cleanName) {
-      cardsFound = await fetchTcg(`name:"${cleanName}"`);
-    }
-
-    // Étape C: Numéro seul si toujours rien trouvé
-    if (cardsFound.length === 0 && cleanNum) {
-      cardsFound = await fetchTcg(`number:"${cleanNum}"`);
-    }
-
-    // Si vraiment rien n'est trouvé
-    if (cardsFound.length === 0) {
-      return res.status(200).json({
-        detectedName: nomFr,
-        detectedNum: cleanNum,
-        candidates: []
+    // Si l'IA n'a pas réussi à lire de nom, ON ARRÊTE TOUT pour ne pas sortir Dracaufeu
+    if (!nomEn || nomEn.toLowerCase() === 'pokemon' || nomEn.toLowerCase() === 'card') {
+      return res.status(400).json({
+        error: "Impossible de lire le nom du Pokémon. Veuillez reprendre une photo plus nette et centrée."
       });
     }
 
-    // 6. FORMATAGE DES RÉSULTATS
+    // 5. APPEL POKÉMON TCG STRICT
+    let cardsFound = [];
+
+    // On prépare des requêtes très spécifiques
+    let queriesToTry = [];
+    
+    if (nomEn && num) {
+      queriesToTry.push(`name:"${nomEn}" number:"${num}"`);
+      queriesToTry.push(`name:"*${nomEn}*" number:"${num}"`);
+    }
+    if (nomEn) {
+      queriesToTry.push(`name:"${nomEn}"`);
+      queriesToTry.push(`name:"*${nomEn}*"`);
+    }
+
+    for (const q of queriesToTry) {
+      try {
+        const tcgRes = await fetch(
+          `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(q)}&pageSize=10`,
+          { signal: AbortSignal.timeout(5000) }
+        );
+
+        if (tcgRes.ok) {
+          const tcgData = await tcgRes.json();
+          if (tcgData.data && tcgData.data.length > 0) {
+            cardsFound = tcgData.data;
+            break; // On a trouvé nos cartes, on sort de la boucle
+          }
+        }
+      } catch (e) {
+        console.warn('Erreur TCG fetch:', e);
+      }
+    }
+
+    if (cardsFound.length === 0) {
+      return res.status(404).json({
+        error: `Aucune carte trouvée pour "${nomFr}" (${nomEn}) avec le N°${num || 'inconnu'}.`
+      });
+    }
+
+    // 6. MISE EN FORME DES CARTES TROUVÉES
     const candidates = cardsFound.slice(0, 8).map(c => {
       let price = 0;
       if (c.cardmarket?.prices) {
         const cm = c.cardmarket.prices;
-        price = cm.trendPrice || cm.avg1 || cm.avg7 || cm.averageSellPrice || cm.lowPrice || 0;
+        price = cm.trendPrice || cm.avg1 || cm.averageSellPrice || cm.lowPrice || 0;
       } else if (c.tcgplayer?.prices) {
         const tp = c.tcgplayer.prices;
         const variant = tp.normal || tp.holofoil || tp.reverseHolofoil || tp.unlimited || {};
-        const usdPrice = variant.market || variant.mid || variant.low || 0;
+        const usdPrice = variant.market || variant.mid || 0;
         price = usdPrice * 0.92;
       }
 
@@ -179,7 +169,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       detectedName: nomFr,
-      detectedNum: cleanNum,
+      detectedNum: num,
       candidates: candidates
     });
 
