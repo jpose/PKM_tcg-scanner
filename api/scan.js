@@ -26,7 +26,7 @@ export default async function handler(req, res) {
 
     const keysToTry = availableKeys.sort(() => Math.random() - 0.5);
 
-    // 2. MODÈLES À TESTER
+    // 2. MODÈLES GEMINI
     const modelsToTry = [
       'gemini-flash-latest',
       'gemini-2.5-flash',
@@ -39,12 +39,12 @@ export default async function handler(req, res) {
     const prompt = `Tu es un expert Pokémon. Analyse cette carte et renvoie UNIQUEMENT un objet JSON valide avec ces 3 clés :
     - "fr": Le nom de la carte en français.
     - "en": Le nom de la carte en anglais (très important).
-    - "num": Le numéro exact de la carte visible en bas (ex: "25" si "025/185"). S'il n'y a pas de numéro, mets "".`;
+    - "num": Le numéro de la carte (ex: "25" si "025/185"). S'il n'y a pas de numéro, mets "".`;
 
     let rawResultText = null;
     let lastError = null;
 
-    // 3. EXÉCUTION GEMINI (Thinking désactivé + Timeout 15s)
+    // 3. APPEL GEMINI
     keyLoop: for (const apiKey of keysToTry) {
       for (const model of modelsToTry) {
         try {
@@ -89,11 +89,11 @@ export default async function handler(req, res) {
 
     if (!rawResultText) {
       return res.status(502).json({ 
-        error: `Délai dépassé ou erreur Gemini : ${lastError?.message || 'Aucune réponse reçue à temps.'}` 
+        error: `Erreur Gemini : ${lastError?.message || 'Aucune réponse reçue.'}` 
       });
     }
 
-    // 4. PARSING DU JSON GEMINI
+    // 4. PARSING JSON
     let cardData = {};
     try {
       cardData = JSON.parse(rawResultText);
@@ -105,74 +105,75 @@ export default async function handler(req, res) {
     const nomFr = cardData.fr || nomEn;
     let num = cardData.num || '';
 
-    // Nettoyage du numéro : "025/185" -> "25"
-    if (num.includes('/')) {
-      num = num.split('/')[0].replace(/^0+/, '');
-    } else {
-      num = num.replace(/^0+/, '');
-    }
+    let cleanNum = num.includes('/') ? num.split('/')[0] : num;
+    cleanNum = cleanNum.replace(/^0+/, '').trim();
 
-    // 5. RECHERCHE DANS L'API POKÉMON TCG
-    let tcgCard = null;
+    // 5. RECHERCHE MULTIPLE SUR POKÉMON TCG
+    let cardsFound = [];
 
-    if (nomEn || num) {
+    if (nomEn || cleanNum) {
       try {
-        let q = [];
-        if (nomEn) {
+        let queryStr = '';
+        if (cleanNum && nomEn) {
           const cleanName = nomEn.replace(/[^a-zA-Z0-9 ]/g, '').trim();
-          if (cleanName) q.push(`name:"${cleanName}"`);
-        }
-        if (num) {
-          q.push(`number:"${num}"`);
+          queryStr = `number:"${cleanNum}" name:"*${cleanName}*"`;
+        } else if (cleanNum) {
+          queryStr = `number:"${cleanNum}"`;
+        } else if (nomEn) {
+          const cleanName = nomEn.replace(/[^a-zA-Z0-9 ]/g, '').trim();
+          queryStr = `name:"*${cleanName}*"`;
         }
 
-        const tcgRes = await fetch(
-          `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(q.join(' '))}`,
+        let tcgRes = await fetch(
+          `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(queryStr)}&pageSize=10`,
           { signal: AbortSignal.timeout(6000) }
         );
 
-        if (tcgRes.ok) {
-          const tcgData = await tcgRes.json();
-          const cards = tcgData.data || [];
+        let tcgData = await tcgRes.json();
+        cardsFound = tcgData.data || [];
 
-          if (cards.length > 0) {
-            // Priorité absolue au numéro exact s'il existe
-            tcgCard = cards.find(c => String(c.number) === String(num)) || cards[0];
-          }
+        // Fallback si rien trouvé avec la combinaison numéro + nom
+        if (cardsFound.length === 0 && nomEn) {
+          const cleanName = nomEn.replace(/[^a-zA-Z0-9 ]/g, '').trim();
+          tcgRes = await fetch(
+            `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(`name:"*${cleanName}*"`)}&pageSize=10`,
+            { signal: AbortSignal.timeout(6000) }
+          );
+          tcgData = await tcgRes.json();
+          cardsFound = tcgData.data || [];
         }
       } catch (tcgErr) {
-        console.warn('API Pokémon TCG hors délai');
+        console.warn('API Pokémon TCG erreur :', tcgErr.message);
       }
     }
 
-    // 6. CALCUL STRICT ET RÉALISTE DE LA COTE
-    let price = 0;
+    // 6. FORMATAGE DE TOUTES LES CARTES TROUVÉES
+    const candidates = cardsFound.slice(0, 6).map(c => {
+      let price = 0;
+      if (c.cardmarket?.prices) {
+        const cm = c.cardmarket.prices;
+        price = cm.trendPrice || cm.avg1 || cm.avg7 || cm.averageSellPrice || cm.lowPrice || 0;
+      } else if (c.tcgplayer?.prices) {
+        const tp = c.tcgplayer.prices;
+        const variant = tp.normal || tp.holofoil || tp.reverseHolofoil || tp.unlimited || {};
+        const usdPrice = variant.market || variant.mid || variant.low || 0;
+        price = usdPrice * 0.92;
+      }
 
-    if (tcgCard?.cardmarket?.prices) {
-      const cm = tcgCard.cardmarket.prices;
-      // Prix Cardmarket (Euros) : Prix de tendance ou moyenne des ventes
-      price = cm.trendPrice || cm.avg1 || cm.avg7 || cm.averageSellPrice || cm.lowPrice || 0;
-    } else if (tcgCard?.tcgplayer?.prices) {
-      const tp = tcgCard.tcgplayer.prices;
-      
-      // Sélection de la variante (normale en priorité)
-      const variant = tp.normal || tp.holofoil || tp.reverseHolofoil || tp.unlimited || {};
-      
-      // Utilisation du prix moyen de marché (market) et non des extrêmes
-      const usdPrice = variant.market || variant.mid || variant.low || 0;
-      
-      // Conversion approximative USD -> EUR
-      price = usdPrice * 0.92;
-    }
+      return {
+        id: c.id,
+        cardName: `${nomFr} (${c.name})`,
+        setName: `${c.set.name} — ${c.number}/${c.set.printedTotal}`,
+        number: c.number,
+        price: Number(price.toFixed(2)),
+        imageUrl: c.images?.large || c.images?.small
+      };
+    });
 
-    if (isNaN(price)) price = 0;
-
-    // 7. RETOUR DU RÉSULTAT
     return res.status(200).json({
-      cardName: tcgCard ? `${nomFr} (${tcgCard.name})` : (nomFr || 'Carte inconnue'),
-      setName: tcgCard ? `${tcgCard.set.name} — ${tcgCard.number}/${tcgCard.set.printedTotal}` : 'Extension introuvable',
-      price: Number(price.toFixed(2)),
-      imageUrl: tcgCard?.images?.large || image
+      detectedName: nomFr,
+      detectedNum: cleanNum,
+      candidates: candidates
     });
 
   } catch (globalError) {
