@@ -3,329 +3,273 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Scanner Carte Pokémon TCG</title>
+  <title>Scanner Carte Pokémon</title>
   <style>
     * {
       box-sizing: border-box;
       margin: 0;
       padding: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
 
     body {
-      background-color: #f4f6f8;
-      color: #333;
+      background-color: #0f172a;
+      color: #f8fafc;
       display: flex;
-      justify-content: center;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
       padding: 20px;
-    }
-
-    .container {
-      max-width: 480px;
-      width: 100%;
-      background: #ffffff;
-      padding: 24px;
-      border-radius: 16px;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
     }
 
     h1 {
       font-size: 1.5rem;
-      text-align: center;
       margin-bottom: 20px;
-      color: #1a1a1a;
+      color: #38bdf8;
     }
 
-    .upload-section {
+    .container {
+      width: 100%;
+      max-width: 400px;
       display: flex;
       flex-direction: column;
-      gap: 12px;
-      margin-bottom: 20px;
+      align-items: center;
+      gap: 15px;
     }
 
-    .btn {
-      display: inline-block;
+    #camera-view, #result-view {
       width: 100%;
-      padding: 12px 16px;
-      background-color: #2563eb;
-      color: white;
-      text-align: center;
-      font-weight: 600;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      transition: background-color 0.2s ease;
-    }
-
-    .btn:hover {
-      background-color: #1d4ed8;
-    }
-
-    .btn:disabled {
-      background-color: #93c5fd;
-      cursor: not-allowed;
-    }
-
-    input[type="file"] {
-      display: none;
-    }
-
-    .preview-container {
-      position: relative;
-      width: 100%;
-      aspect-ratio: 2.5 / 3.5;
-      background-color: #e5e7eb;
+      background-color: #1e293b;
       border-radius: 12px;
       overflow: hidden;
       display: flex;
+      flex-direction: column;
       align-items: center;
-      justify-content: center;
-      margin-bottom: 20px;
-      border: 2px dashed #d1d5db;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
     }
 
-    .preview-container img {
+    video {
       width: 100%;
-      height: 100%;
-      object-fit: contain;
+      height: 350px;
+      object-fit: cover;
     }
 
-    .placeholder-text {
-      color: #6b7280;
-      font-size: 0.9rem;
+    .btn {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 8px;
+      background-color: #0284c7;
+      color: white;
+      font-size: 1rem;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn:hover {
+      background-color: #0369a1;
+    }
+
+    .btn:disabled {
+      background-color: #475569;
+      cursor: not-allowed;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    /* Styles pour la fiche de résultat */
+    .card-info {
+      padding: 20px;
+      width: 100%;
       text-align: center;
-      padding: 10px;
     }
 
-    .results {
-      background-color: #f9fafb;
-      border: 1px solid #e5e7eb;
-      border-radius: 12px;
-      padding: 16px;
-      display: none;
+    .card-image {
+      max-width: 200px;
+      border-radius: 8px;
+      margin-bottom: 15px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
     }
 
-    .results.active {
-      display: block;
+    .card-title {
+      font-size: 1.25rem;
+      font-weight: bold;
+      margin-bottom: 5px;
     }
 
-    .result-item {
-      margin-bottom: 12px;
+    .card-set {
+      color: #94a3b8;
+      font-size: 0.9rem;
+      margin-bottom: 15px;
     }
 
-    .result-item:last-child {
-      margin-bottom: 0;
-    }
-
-    .result-label {
-      font-size: 0.8rem;
-      text-transform: uppercase;
-      color: #6b7280;
-      font-weight: 700;
-      letter-spacing: 0.5px;
-    }
-
-    .result-value {
-      font-size: 1.1rem;
-      font-weight: 600;
-      color: #111827;
-      margin-top: 2px;
-    }
-
-    .price-tag {
-      color: #16a34a;
-      font-size: 1.4rem;
-      font-weight: 700;
+    .card-price {
+      font-size: 1.5rem;
+      color: #4ade80;
+      font-weight: bold;
+      margin-bottom: 15px;
     }
 
     .loader {
-      display: none;
+      padding: 20px;
       text-align: center;
-      margin: 15px 0;
-      font-weight: 600;
-      color: #2563eb;
+      color: #38bdf8;
+      font-weight: bold;
     }
 
     .error-msg {
-      display: none;
-      background-color: #fef2f2;
-      border: 1px solid #fecaca;
-      color: #dc2626;
-      padding: 12px;
-      border-radius: 8px;
-      font-size: 0.9rem;
-      margin-top: 15px;
-      word-break: break-word;
+      color: #f87171;
+      padding: 15px;
+      text-align: center;
     }
   </style>
 </head>
 <body>
 
-<div class="container">
-  <h1>Scanner de Carte Pokémon</h1>
+  <div class="container">
+    <h1>Scanner de Carte Pokémon</h1>
 
-  <div class="upload-section">
-    <label for="file-input" class="btn">Sélectionner ou Prendre une Photo</label>
-    <input type="file" id="file-input" accept="image/*" capture="environment">
-  </div>
-
-  <div class="preview-container" id="preview-box">
-    <span class="placeholder-text" id="placeholder">Aucune image sélectionnée</span>
-    <img id="card-img" src="" alt="Aperçu de la carte" style="display: none;">
-  </div>
-
-  <button id="scan-btn" class="btn" style="background-color: #059669;" disabled>Analyser la Carte</button>
-
-  <div class="loader" id="loader">Analyse Gemini en cours...</div>
-  <div class="error-msg" id="error-box"></div>
-
-  <div class="results" id="results-box">
-    <div class="result-item">
-      <div class="result-label">Carte</div>
-      <div class="result-value" id="res-name">-</div>
+    <!-- Vue Appareil Photo -->
+    <div id="camera-view">
+      <video id="webcam" autoplay playsinline></video>
+      <div style="padding: 15px; width: 100%;">
+        <button id="scan-btn" class="btn">Prendre en photo & Scanner</button>
+      </div>
     </div>
-    <div class="result-item">
-      <div class="result-label">Extension / Numéro</div>
-      <div class="result-value" id="res-set">-</div>
-    </div>
-    <div class="result-item">
-      <div class="result-label">Côte estimée</div>
-      <div class="result-value price-tag" id="res-price">0.00 €</div>
+
+    <!-- Indicateur de chargement -->
+    <div id="loading" class="loader hidden">Analyse de la carte en cours...</div>
+
+    <!-- Vue Résultat -->
+    <div id="result-view" class="hidden">
+      <div class="card-info">
+        <img id="card-img" class="card-image hidden" src="" alt="Carte Pokémon">
+        <div id="card-name" class="card-title">--</div>
+        <div id="card-set" class="card-set">--</div>
+        <div id="card-price" class="card-price">-- €</div>
+        <div id="error-box" class="error-msg hidden"></div>
+        <button id="retry-btn" class="btn" style="margin-top: 10px;">Scanner une autre carte</button>
+      </div>
     </div>
   </div>
-</div>
 
-<script>
-  const fileInput = document.getElementById('file-input');
-  const scanBtn = document.getElementById('scan-btn');
-  const cardImg = document.getElementById('card-img');
-  const placeholder = document.getElementById('placeholder');
-  const loader = document.getElementById('loader');
-  const errorBox = document.getElementById('error-box');
-  const resultsBox = document.getElementById('results-box');
+  <script>
+    const video = document.getElementById('webcam');
+    const scanBtn = document.getElementById('scan-btn');
+    const retryBtn = document.getElementById('retry-btn');
+    const cameraView = document.getElementById('camera-view');
+    const resultView = document.getElementById('result-view');
+    const loadingView = document.getElementById('loading');
 
-  const resName = document.getElementById('res-name');
-  const resSet = document.getElementById('res-set');
-  const resPrice = document.getElementById('res-price');
+    const cardImg = document.getElementById('card-img');
+    const cardName = document.getElementById('card-name');
+    const cardSet = document.getElementById('card-set');
+    const cardPrice = document.getElementById('card-price');
+    const errorBox = document.getElementById('error-box');
 
-  let currentBase64 = null;
+    let currentStream = null;
 
-  // Fonction de compression d'image (réduit le poids à ~150 Ko max)
-  function compressImage(file, maxWidth = 800, quality = 0.7) {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = (event) => {
-        const img = new Image();
-        img.src = event.target.result;
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          let width = img.width;
-          let height = img.height;
-
-          if (width > maxWidth) {
-            height = Math.round((height * maxWidth) / width);
-            width = maxWidth;
-          }
-
-          canvas.width = width;
-          canvas.height = height;
-
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', quality));
-        };
-      };
-    });
-  }
-
-  // Traitement du fichier sélectionné ou de la photo
-  fileInput.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    loader.textContent = "Optimisation de l'image...";
-    loader.style.display = 'block';
-
-    try {
-      // Compresse la photo instantanément avant affichage et envoi
-      currentBase64 = await compressImage(file);
-
-      cardImg.src = currentBase64;
-      cardImg.style.display = 'block';
-      placeholder.style.display = 'none';
-
-      scanBtn.disabled = false;
-      errorBox.style.display = 'none';
-      resultsBox.classList.remove('active');
-    } catch (err) {
-      errorBox.textContent = "Erreur lors du traitement de l'image.";
-      errorBox.style.display = 'block';
-    } finally {
-      loader.style.display = 'none';
-      loader.textContent = "Analyse Gemini en cours...";
-    }
-  });
-
-  // Envoi de l'image optimisée vers le backend Vercel
-  scanBtn.addEventListener('click', async () => {
-    if (!currentBase64) return;
-
-    scanBtn.disabled = true;
-    loader.style.display = 'block';
-    errorBox.style.display = 'none';
-    resultsBox.classList.remove('active');
-
-    try {
-      const response = await fetch('/api/scan', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ image: currentBase64 })
-      });
-
-      // 1. Récupération du texte brut
-      const textResponse = await response.text();
-
-      // 2. Contrôle de présence de données
-      if (!textResponse) {
-        throw new Error("Le serveur n'a renvoyé aucune donnée. Réessaie dans un instant.");
-      }
-
-      // 3. Décodage JSON sécurisé
-      let data;
+    // 1. Démarrer la flux caméra
+    async function startCamera() {
       try {
-        data = JSON.parse(textResponse);
-      } catch (jsonErr) {
-        throw new Error("Réponse serveur illisible : " + textResponse.substring(0, 100));
+        currentStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' } // Préfère la caméra arrière sur mobile
+        });
+        video.srcObject = currentStream;
+      } catch (err) {
+        alert("Impossible d'accéder à la caméra : " + err.message);
       }
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Erreur lors de l\'analyse.');
-      }
-
-      // Remplacement par l'image officielle Pokémon TCG si disponible
-      if (data.imageUrl) {
-        cardImg.src = data.imageUrl;
-      }
-
-      // Mise à jour de l'affichage des informations
-      resName.textContent = data.cardName;
-      resSet.textContent = data.setName;
-      resPrice.textContent = data.estimatedPrice ? `${data.estimatedPrice.toFixed(2)} €` : 'Indisponible';
-
-      resultsBox.classList.add('active');
-
-    } catch (err) {
-      errorBox.textContent = err.message;
-      errorBox.style.display = 'block';
-    } finally {
-      loader.style.display = 'none';
-      scanBtn.disabled = false;
     }
-  });
-</script>
 
+    // 2. Arrêter la caméra pour couper la prise de vue
+    function stopCamera() {
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+        currentStream = null;
+        video.srcObject = null;
+      }
+    }
+
+    // 3. Capture et envoi de la photo
+    async function captureAndScan() {
+      if (!currentStream) return;
+
+      // Création d'un canvas pour extraire l'image courante
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      const imageData = canvas.toDataURL('image/jpeg');
+
+      // --- ARRÊT DE LA CAMÉRA APRÈS LA CAPTURE ---
+      stopCamera();
+
+      // Bascule de l'interface
+      cameraView.classList.add('hidden');
+      loadingView.classList.remove('hidden');
+
+      try {
+        const response = await fetch('/api/scan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: imageData })
+        });
+
+        const data = await response.json();
+        loadingView.classList.add('hidden');
+        resultView.classList.remove('hidden');
+
+        if (!response.ok || data.error) {
+          showError(data.error || 'Erreur lors de l\'analyse');
+          return;
+        }
+
+        // Affichage des données
+        errorBox.classList.add('hidden');
+        cardName.textContent = data.cardName || 'Carte inconnue';
+        cardSet.textContent = data.setName || 'Extension inconnue';
+        cardPrice.textContent = `${data.estimatedPrice ?? 0} €`;
+
+        if (data.imageUrl) {
+          cardImg.src = data.imageUrl;
+          cardImg.classList.remove('hidden');
+        } else {
+          cardImg.classList.add('hidden');
+        }
+
+      } catch (err) {
+        loadingView.classList.add('hidden');
+        resultView.classList.remove('hidden');
+        showError('Erreur de connexion : ' + err.message);
+      }
+    }
+
+    function showError(msg) {
+      errorBox.textContent = msg;
+      errorBox.classList.remove('hidden');
+      cardName.textContent = 'Erreur';
+      cardSet.textContent = '';
+      cardPrice.textContent = '';
+      cardImg.classList.add('hidden');
+    }
+
+    // Événements
+    scanBtn.addEventListener('click', captureAndScan);
+
+    retryBtn.addEventListener('click', () => {
+      resultView.classList.add('hidden');
+      cameraView.classList.remove('hidden');
+      startCamera(); // Relance la caméra pour une nouvelle capture
+    });
+
+    // Lancement de la caméra au chargement
+    startCamera();
+  </script>
 </body>
 </html>
