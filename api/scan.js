@@ -21,8 +21,8 @@ export default async function handler(req, res) {
     const base64Data = image.split(',')[1] || image;
     const mimeType = image.split(';')[0].split(':')[1] || 'image/jpeg';
 
-    // 2. URL mise à jour avec le modèle gemini-2.5-flash
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
+    // 2. URL de l'API Gemini avec l'alias Flash stable
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
 
     const promptText = `Analyse cette image de carte Pokémon TCG.
 Identifie le nom de la carte et son numéro (ex: 4/102 ou 058/102).
@@ -82,7 +82,7 @@ Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans texte ni 
 
     const matchedCard = tcgData.data && tcgData.data.length > 0 ? tcgData.data[0] : null;
 
-    // 5. Récupération du prix Cardmarket ou TCGPlayer
+    // 5. Récupération du prix
     let price = 0;
     if (matchedCard?.cardmarket?.prices?.averageSellPrice) {
       price = matchedCard.cardmarket.prices.averageSellPrice;
