@@ -1,153 +1,61 @@
 export const config = {
-  maxDuration: 15, // Indique à Vercel d'autoriser jusqu'à 15s d'exécution
+  maxDuration: 30, // Sécurité pour Vercel
 };
 
 export default async function handler(req, res) {
-  res.setHeader('Content-Type', 'application/json');
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Méthode non autorisée. Utilisez POST.' });
-  }
+  if (req.method !== 'POST') return res.status(405).json({ error: 'POST required' });
 
   try {
-    const { image } = req.body || {};
+    const { image } = req.body;
+    if (!image) return res.status(400).json({ error: 'Aucune image transmise.' });
 
-    if (!image) {
-      return res.status(400).json({ error: 'Aucune image transmise.' });
+    // Récupération des deux clés depuis les variables d'environnement
+    const key1 = process.env.GEMINI_API_KEY_1;
+    const key2 = process.env.GEMINI_API_KEY_2;
+    const availableKeys = [key1, key2].filter(Boolean); // Ignore les clés nulles ou indéfinies
+
+    if (availableKeys.length === 0) {
+      return res.status(500).json({ error: 'Aucune clé API GEMINI configurée dans Vercel.' });
     }
 
-    const geminiApiKey = process.env.GEMINI_API_KEY;
-    if (!geminiApiKey) {
-      return res.status(500).json({ error: 'Clé GEMINI_API_KEY manquante dans Vercel.' });
-    }
+    // Mélange aléatoire des clés (Load balancing 50/50)
+    const shuffledKeys = availableKeys.sort(() => Math.random() - 0.5);
 
-    const modelName = 'gemini-3.6-flash';
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
+    const modelName = 'gemini-1.5-Parfait. Utiliser plusieurs clés d'API sur Vercel (qui fonctionne avec des fonctions Serverless ou Edge) nécessite une approche sans état (stateless). Puisque les variables globales ne sont pas partagées entre toutes les instances de vos fonctions, la meilleure optimisation combine **la sélection aléatoire** (pour répartir la charge) et un **système de repli (fallback)** en cas d'erreur de limite de quota (HTTP 429).
 
-    const base64Data = image.split(',')[1] || image;
-    const mimeType = image.split(';')[0].split(':')[1] || 'image/jpeg';
+Voici comment structurer votre code pour exploiter ces deux clés de manière optimale.
 
-    // Prompt court et direct pour maximiser la rapidité d'exécution
-    const promptText = `Analyse cette carte Pokémon.
-Extraits :
-1. cardNameFr (Nom FR)
-2. cardNameEn (Nom EN)
-3. cardNumber (Ex: 025/185 ou 25)
-Renvoie uniquement un JSON : {"cardNameFr":"", "cardNameEn":"", "cardNumber":""}`;
+### 1. Le gestionnaire de clés (Key Manager)
+Ce script sélectionne une clé aléatoirement pour équilibrer la charge dès le départ.
 
-    let geminiRes;
-    try {
-      geminiRes = await fetch(geminiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { text: promptText },
-              { inline_data: { mime_type: mimeType, data: base64Data } }
-            ]
-          }],
-          generationConfig: {
-            response_mime_type: 'application/json',
-            temperature: 0.1,      // Réponse plus directe et rapide
-            maxOutputTokens: 120   // Empêche le modèle de générer trop de texte
-          }
-        }),
-        signal: AbortSignal.timeout(8000) // Intercepte le timeout à 8s avant la limite Vercel
-      });
-    } catch (err) {
-      return res.status(504).json({ error: 'L\'analyse de l\'image prend trop de temps. Réessayez avec une photo plus nette et bien cadrée.' });
-    }
+```javascript
+// utils/geminiKeys.js
 
-    const rawResponseBody = await geminiRes.text();
-    let geminiData;
+// On filtre pour s'assurer que les clés existent bien dans l'environnement
+const apiKeys = [
+  process.env.GEMINI_API_KEY_1,
+  process.env.GEMINI_API_KEY_2
+].filter(Boolean);
 
-    try {
-      geminiData = JSON.parse(rawResponseBody);
-    } catch (e) {
-      return res.status(500).json({ 
-        error: `Réponse serveur non-JSON : ${rawResponseBody.slice(0, 100)}` 
-      });
-    }
+if (apiKeys.length === 0) {
+  throw new Error("Aucune clé Gemini n'est configurée dans Vercel.");
+}
 
-    if (!geminiRes.ok) {
-      const msg = geminiData.error?.message || 'Erreur inconnue';
-      return res.status(geminiRes.status).json({ error: `Erreur API Google (${modelName}) : ${msg}` });
-    }
+/**
+ * Retourne une clé aléatoire pour faire du Load Balancing naturel
+ */
+export function getRandomGeminiKey() {
+  const randomIndex = Math.floor(Math.random() * apiKeys.length);
+  return apiKeys[randomIndex];
+}
 
-    const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
-
-    let parsedInfo = {};
-    try {
-      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-      parsedInfo = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(rawText);
-    } catch (e) {
-      return res.status(500).json({ error: `Impossible de lire la réponse : ${rawText.slice(0, 100)}` });
-    }
-
-    const cardNameFr = parsedInfo.cardNameFr || parsedInfo.cardNameEn || 'Carte inconnue';
-    const cardNameEn = parsedInfo.cardNameEn || parsedInfo.cardNameFr || '';
-    const cardNumber = parsedInfo.cardNumber || '';
-
-    let cleanNumber = '';
-    if (cardNumber) {
-      const rawNum = cardNumber.split('/')[0].trim();
-      cleanNumber = rawNum.replace(/^0+/, '') || rawNum;
-    }
-
-    let matchedCard = null;
-
-    if (cardNameEn || cardNameFr || cleanNumber) {
-      try {
-        let queryParts = [];
-        if (cleanNumber) queryParts.push(`number:"${cleanNumber}"`);
-        if (cardNameEn) queryParts.push(`name:"*${cardNameEn}*"`);
-
-        const queryStr = queryParts.join(' ');
-        const tcgRes = await fetch(
-          `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(queryStr)}`,
-          { signal: AbortSignal.timeout(3000) }
-        );
-
-        if (tcgRes.ok) {
-          const tcgData = await tcgRes.json();
-          const cards = tcgData.data || [];
-
-          if (cards.length > 0) {
-            matchedCard = cards.find(c => 
-              c.number === cleanNumber || 
-              c.name.toLowerCase() === cardNameEn.toLowerCase()
-            ) || cards[0];
-          }
-        }
-      } catch (tcgErr) {
-        console.warn('API TCG hors délai');
-      }
-    }
-
-    let price = 0;
-    if (matchedCard) {
-      const cm = matchedCard.cardmarket?.prices || {};
-      price = cm.averageSellPrice || cm.trendPrice || cm.lowPrice || 0;
-      
-      if (!price && matchedCard.tcgplayer?.prices) {
-        const tcg = matchedCard.tcgplayer.prices;
-        const marketPrice = tcg.normal?.market || tcg.holofoil?.market || tcg.reverseHolofoil?.market;
-        if (marketPrice) {
-          price = marketPrice * 0.92;
-        }
-      }
-    }
-
-    return res.status(200).json({
-      success: true,
-      cardName: matchedCard ? `${cardNameFr} (${matchedCard.name})` : cardNameFr,
-      setName: matchedCard ? `${matchedCard.set.name} — ${matchedCard.number}/${matchedCard.set.printedTotal}` : 'Extension non identifiée',
-      estimatedPrice: Number(price.toFixed(2)),
-      imageUrl: matchedCard?.images?.large || image
-    });
-
-  } catch (error) {
-    return res.status(500).json({ error: 'Erreur interne : ' + error.message });
-  }
+/**
+ * Retourne l'autre clé si la première échoue
+ */
+export function getFallbackKey(currentKey) {
+  // S'il n'y a qu'une seule clé valide, on la retourne quand même
+  if (apiKeys.length === 1) return currentKey;
+  
+  // Trouve la clé qui N'EST PAS celle qui vient d'échouer
+  return apiKeys.find(key => key !== currentKey) || apiKeys[0];
 }
