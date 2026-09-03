@@ -34,7 +34,7 @@ export default async function handler(req, res) {
     const base64 = image.split(',')[1] || image;
     const mimeType = image.match(/data:(.*?);/)?.[1] || 'image/jpeg';
 
-    const prompt = `Analyse cette image de carte Pokémon. Renvoie UNIQUEMENT un objet JSON valide sans Markdown, sous cette forme :
+    const prompt = `Analyse cette image de carte Pokémon. Renvoie UNIQUEMENT un objet JSON valide sans Markdown :
 {"fr": "NomFrançais", "en": "NomAnglais", "num": "Numero"}`;
 
     let rawResultText = null;
@@ -79,39 +79,34 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: 'L\'IA n\'a pas pu analyser l\'image.' });
     }
 
-    // 4. NETTOYAGE DES DONNÉES
+    // 4. NETTOYAGE ET PARSING
     let cardData = {};
     try {
       const cleanJson = rawResultText.replace(/```json/g, '').replace(/```/g, '').trim();
       cardData = JSON.parse(cleanJson);
     } catch (e) {
-      return res.status(500).json({ error: 'Erreur lors du décodage de la réponse IA.' });
+      return res.status(500).json({ error: 'Erreur de décodage JSON' });
     }
 
     const nomEn = (cardData.en || '').trim();
     const nomFr = (cardData.fr || nomEn).trim();
-    
-    // Extraction du numéro : garder la version brute ET la version sans slash
     const numRaw = (cardData.num || '').split('/')[0].trim();
-    const numClean = numRaw.replace(/^0+/, '').trim(); // sans zéros au début
+    const numClean = numRaw.replace(/^0+/, '').trim();
 
     if (!nomEn) {
-      return res.status(400).json({ error: 'Nom de carte illisible. Prenez une photo plus nette.' });
+      return res.status(400).json({ error: 'Nom de carte illisible sur l\'image.' });
     }
 
-    // 5. RECHERCHE EN CASCADE SUR L'API TCG
-    let cardsFound = [];
-    const cleanSearchName = nomEn.replace(/[^a-zA-Z0-9 ]/g, '').trim();
+    // Nettoyage strict pour la requête TCG (lettres et chiffres uniquement)
+    const cleanSearchName = nomEn.replace(/[^a-zA-Z0-9]/g, '');
 
-    // On prépare plusieurs essais du plus précis au plus large
+    // 5. RECHERCHE CIBLÉE TCG (SYNTAXE SIMPLE SANS GUILLEMETS)
+    let cardsFound = [];
     let queries = [];
-    
-    // Essai 1 : Nom + Numéro exact (ex: "019" ou "19")
-    if (numRaw) queries.push(`name:"${cleanSearchName}" number:"${numRaw}"`);
-    if (numClean && numClean !== numRaw) queries.push(`name:"${cleanSearchName}" number:"${numClean}"`);
-    
-    // Essai 2 : Nom seul
-    queries.push(`name:"${cleanSearchName}"`);
+
+    if (numRaw) queries.push(`name:${cleanSearchName} number:${numRaw}`);
+    if (numClean && numClean !== numRaw) queries.push(`name:${cleanSearchName} number:${numClean}`);
+    queries.push(`name:${cleanSearchName}`);
 
     for (const q of queries) {
       try {
@@ -124,14 +119,28 @@ export default async function handler(req, res) {
           const tcgData = await tcgRes.json();
           const results = tcgData.data || [];
 
-          // Filtrage de sécurité : s'assurer que le nom correspond
-          const filtered = results.filter(c => 
-            c.name.toLowerCase().includes(cleanSearchName.toLowerCase())
-          );
+          // VERROU SÉCURITÉ ANTI-DRACAUFEU :
+          // Si le Pokémon recherché n'est pas Charizard/Dracaufeu,
+          // on filtre TOUTE carte qui contiendrait Charizard/Dracaufeu ou qui ne contient pas la recherche.
+          const isSearchingCharizard = cleanSearchName.toLowerCase().includes('charizard') || nomFr.toLowerCase().includes('dracaufeu');
+
+          const filtered = results.filter(c => {
+            const cardNameLower = c.name.toLowerCase();
+            const searchLower = cleanSearchName.toLowerCase();
+
+            // Doit contenir le nom recherché
+            const matchesName = cardNameLower.includes(searchLower);
+
+            if (!isSearchingCharizard) {
+              // Si on ne cherche PAS Dracaufeu, on rejette systématiquement Charizard
+              return matchesName && !cardNameLower.includes('charizard');
+            }
+            return matchesName;
+          });
 
           if (filtered.length > 0) {
             cardsFound = filtered;
-            break; // Dès qu'on trouve, on s'arrête !
+            break;
           }
         }
       } catch (e) {
@@ -141,11 +150,11 @@ export default async function handler(req, res) {
 
     if (cardsFound.length === 0) {
       return res.status(404).json({
-        error: `Impossible de trouver "${nomFr}" (${nomEn}) dans la base TCG.`
+        error: `Aucune carte trouvée pour "${nomFr}" (${nomEn}) #${numRaw || 'inconnu'}.`
       });
     }
 
-    // 6. FORMATAGE DES RÉSULTATS
+    // 6. MISE EN FORME
     const candidates = cardsFound.slice(0, 8).map(c => {
       let price = 0;
       if (c.cardmarket?.prices) {
