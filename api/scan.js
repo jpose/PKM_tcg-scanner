@@ -1,5 +1,5 @@
 export default async function handler(req, res) {
-  // S'assure que Vercel renvoie TOUJOURS du JSON (évite le token 'A')
+  // S'assure que Vercel renvoie TOUJOURS du JSON
   res.setHeader('Content-Type', 'application/json');
 
   if (req.method !== 'POST') {
@@ -18,7 +18,7 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Clé GEMINI_API_KEY manquante dans les variables Vercel.' });
     }
 
-    // 1. Récupération dynamique de la liste des modèles disponibles sur ta clé
+    // 1. Récupération de la liste des modèles pour valider la présence de 3.6-flash
     const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${geminiApiKey}`;
     const listResponse = await fetch(listUrl);
     const listData = await listResponse.json();
@@ -29,28 +29,35 @@ export default async function handler(req, res) {
       });
     }
 
-    // Cherche un modèle qui supporte generateContent
     const availableModels = listData.models || [];
-    const validModel = availableModels.find(m => 
-      m.supportedGenerationMethods?.includes('generateContent') &&
-      (m.name.includes('flash') || m.name.includes('pro'))
-    );
 
-    if (!validModel) {
+    // Priorité absolue : recherche de gemini-3.6-flash
+    let targetModel = availableModels.find(m => m.name.includes('gemini-3.6-flash'));
+
+    // Si non trouvé, recherche d'un modèle 3.6
+    if (!targetModel) {
+      targetModel = availableModels.find(m => m.name.includes('3.6'));
+    }
+
+    // Repli sur le premier modèle supportant generateContent si 3.6 est introuvable
+    if (!targetModel) {
+      targetModel = availableModels.find(m => m.supportedGenerationMethods?.includes('generateContent'));
+    }
+
+    if (!targetModel) {
       return res.status(404).json({
-        error: 'Aucun modèle compatible generateContent trouvé sur cette clé API.',
+        error: 'Aucun modèle compatible trouvé sur cette clé API.',
         availableModels: availableModels.map(m => m.name)
       });
     }
 
-    // Extrait le nom du modèle (ex: "models/gemini-2.5-flash" -> "gemini-2.5-flash")
-    const modelName = validModel.name.replace('models/', '');
+    const modelName = targetModel.name.replace('models/', '');
 
     // 2. Nettoyage de l'image Base64
     const base64Data = image.split(',')[1] || image;
     const mimeType = image.split(';')[0].split(':')[1] || 'image/jpeg';
 
-    // 3. Appel avec le modèle détecté automatiquement
+    // 3. Appel de l'API avec le modèle sélectionné
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
 
     const promptText = `Analyse cette image de carte Pokémon TCG.
@@ -86,7 +93,7 @@ Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans aucun tex
       });
     }
 
-    // 4. Extraction de la réponse
+    // 4. Extraction du texte nettoyé
     let rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
     rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
 
