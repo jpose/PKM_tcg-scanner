@@ -24,7 +24,7 @@ export default async function handler(req, res) {
 
     const keysToTry = availableKeys.sort(() => Math.random() - 0.5);
 
-    // 2. MODÈLES GEMINI
+    // 2. MODÈLES GEMINI ORIGINAUX
     const modelsToTry = [
       'gemini-flash-latest',
       'gemini-2.5-flash',
@@ -70,7 +70,7 @@ export default async function handler(req, res) {
             if (rawResultText) break keyLoop;
           }
         } catch (err) {
-          // Continue au suivant
+          // Continue
         }
       }
     }
@@ -91,11 +91,14 @@ export default async function handler(req, res) {
     const nomEn = (cardData.en || '').trim();
     const nomFr = (cardData.fr || nomEn).trim();
     const numRaw = (cardData.num || '').split('/')[0].trim();
-    const detectedSet = (cardData.set_name || 'Série Récente').trim();
+    const detectedSet = (cardData.set_name || 'Extension inconnue').trim();
 
     if (!nomEn) {
       return res.status(400).json({ error: 'Nom de carte illisible.' });
     }
+
+    // VÉRIFICATION STRICTE : Est-ce qu'on scanne VRAIMENT un Dracaufeu ?
+    const isActuallyCharizard = nomEn.toLowerCase().includes('charizard') || nomFr.toLowerCase().includes('dracaufeu');
 
     // 5. RECHERCHE SUR L'API TCG
     const searchName = nomEn.replace(/[^a-zA-Z0-9 ]/g, '').trim();
@@ -118,12 +121,22 @@ export default async function handler(req, res) {
           const tcgData = await tcgRes.json();
           const results = tcgData.data || [];
 
-          const valid = results.filter(c => 
-            c.name.toLowerCase().includes(searchName.toLowerCase())
-          );
+          // BANNISSEMENT ABSOLU DE DRACAUFEU SI CE N'EST PAS UN DRACAUFEU
+          const cleanResults = results.filter(c => {
+            const cardName = c.name.toLowerCase();
+            const targetName = searchName.toLowerCase();
 
-          if (valid.length > 0) {
-            candidates = valid.slice(0, 8).map(c => {
+            // S'il s'agit d'un Charizard renvoyé par erreur par l'API
+            if (!isActuallyCharizard && cardName.includes('charizard')) {
+              return false; // REJET IMMÉDIAT
+            }
+
+            // Vérifie qu'il y a une vraie correspondance de nom
+            return cardName.includes(targetName);
+          });
+
+          if (cleanResults.length > 0) {
+            candidates = cleanResults.slice(0, 8).map(c => {
               let price = 0;
               if (c.cardmarket?.prices) {
                 const cm = c.cardmarket.prices;
@@ -144,7 +157,7 @@ export default async function handler(req, res) {
                 imageUrl: c.images?.large || c.images?.small
               };
             });
-            break;
+            break; // On a de vrais résultats valides, on arrête la recherche
           }
         }
       } catch (e) {
@@ -152,14 +165,14 @@ export default async function handler(req, res) {
       }
     }
 
-    // 6. SECOURS SI LA SERIE N'EST PAS ENCORE DANS L'API TCG
+    // 6. PLAN B : SI CARTE NON TROUVÉE OU SI TOUT A ÉTÉ FILTRÉ (PAS DE DRACAUFEU DE SECOURS)
     if (candidates.length === 0) {
       candidates = [{
         id: `custom-${Date.now()}`,
         cardName: `${nomFr} (${nomEn})`,
         setName: `${detectedSet} — #${numRaw || '?'}` ,
         number: numRaw || '?',
-        price: 0.25, // Prix estimé commune récents
+        price: 0,
         imageUrl: image
       }];
     }
