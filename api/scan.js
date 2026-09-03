@@ -17,7 +17,7 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Clé GEMINI_API_KEY manquante dans Vercel.' });
     }
 
-    // Modèle verrouillé exclusivement sur gemini-3.6-flash
+    // Modèle fixé explicitement sur gemini-3.6-flash selon la consigne Google
     const modelName = 'gemini-3.6-flash';
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
 
@@ -26,7 +26,7 @@ export default async function handler(req, res) {
 
     const promptText = `Analyse cette carte Pokémon.
 Identifie le nom de la carte en français (cardNameFr), son nom en anglais (cardNameEn) et son numéro imprimé en bas (cardNumber).
-Renvoie uniquement les clés cardNameFr, cardNameEn et cardNumber.`;
+Renvoie uniquement un objet JSON valide avec les clés cardNameFr, cardNameEn et cardNumber.`;
 
     let geminiRes;
     try {
@@ -44,30 +44,33 @@ Renvoie uniquement les clés cardNameFr, cardNameEn et cardNumber.`;
             response_mime_type: 'application/json'
           }
         }),
-        signal: AbortSignal.timeout(6000)
+        // Timeout augmenté à 10s
+        signal: AbortSignal.timeout(10000)
       });
     } catch (err) {
-      return res.status(504).json({ error: 'Délai d\'analyse Gemini 3.6 Flash dépassé (6s).' });
+      return res.status(504).json({ error: 'Délai dépassé lors de l\'appel à Gemini 3.6 Flash (10s).' });
     }
 
     const rawResponseBody = await geminiRes.text();
     let geminiData;
 
+    // Protection contre l'erreur 'Unexpected token' si l'API renvoie du texte au lieu d'un JSON
     try {
       geminiData = JSON.parse(rawResponseBody);
     } catch (e) {
       return res.status(500).json({ 
-        error: `Réponse serveur non-JSON : ${rawResponseBody.slice(0, 80)}...` 
+        error: `Réponse serveur non-JSON de Gemini 3.6 Flash : ${rawResponseBody.slice(0, 100)}` 
       });
     }
 
     if (!geminiRes.ok) {
-      const msg = geminiData.error?.message || 'Erreur Gemini inconnue';
-      return res.status(geminiRes.status).json({ error: `API Gemini (${modelName}) : ${msg}` });
+      const msg = geminiData.error?.message || 'Erreur inconnue';
+      return res.status(geminiRes.status).json({ error: `Erreur API Google (${modelName}) : ${msg}` });
     }
 
     const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
+    // Extraction sécurisée du JSON
     let parsedInfo = {};
     try {
       const jsonMatch = rawText.match(/\{[\s\S]*\}/);
@@ -77,7 +80,7 @@ Renvoie uniquement les clés cardNameFr, cardNameEn et cardNumber.`;
         parsedInfo = JSON.parse(rawText);
       }
     } catch (e) {
-      return res.status(500).json({ error: `Impossible de lire le JSON Gemini : ${rawText.slice(0, 80)}` });
+      return res.status(500).json({ error: `Impossible de lire le JSON renvoyé par le modèle : ${rawText.slice(0, 100)}` });
     }
 
     const cardNameFr = parsedInfo.cardNameFr || parsedInfo.cardNameEn || 'Carte inconnue';
@@ -114,7 +117,7 @@ Renvoie uniquement les clés cardNameFr, cardNameEn et cardNumber.`;
           }
         }
       } catch (tcgErr) {
-        console.warn('Timeout ou indisponibilité TCG API');
+        console.warn('API TCG indisponible ou hors délai.');
       }
     }
 
