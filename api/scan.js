@@ -19,8 +19,8 @@ export default async function handler(req, res) {
     const base64Data = image.split(',')[1] || image;
     const mimeType = image.split(';')[0].split(':')[1] || 'image/jpeg';
 
-    // 2. Appel à l'API v1 de Gemini 1.5 Flash
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
+    // 2. Appel à l'API via le point d'entrée canonique v1beta
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
 
     const promptText = `Analyse cette image de carte Pokémon TCG.
 Identifie le nom de la carte et son numéro (ex: 4/102 ou 058/102).
@@ -36,8 +36,8 @@ Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans aucun tex
             parts: [
               { text: promptText },
               {
-                inline_data: {
-                  mime_type: mimeType,
+                inlineData: {
+                  mimeType: mimeType,
                   data: base64Data
                 }
               }
@@ -53,7 +53,7 @@ Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans aucun tex
       throw new Error(geminiData.error?.message || `Erreur Gemini (${geminiResponse.status})`);
     }
 
-    // Extraction et nettoyage du JSON renvoyé par Gemini
+    // Extraction et nettoyage du JSON
     let rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
     rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
 
@@ -61,12 +61,12 @@ Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans aucun tex
     try {
       parsedInfo = JSON.parse(rawText);
     } catch (e) {
-      throw new Error('Impossible de parser la réponse de Gemini : ' + rawText);
+      throw new Error('Erreur de lecture de la réponse Gemini : ' + rawText);
     }
 
     const { cardName, cardNumber } = parsedInfo;
 
-    // 3. Interrogation de l'API gratuite Pokémon TCG
+    // 3. Interrogation de l'API Pokémon TCG
     let searchQuery = `name:"${cardName}"`;
     if (cardNumber) {
       const cleanNum = cardNumber.split('/')[0].trim();
