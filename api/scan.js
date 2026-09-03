@@ -13,7 +13,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Aucune image transmise.' });
     }
 
-    // 1. CLÉS GEMINI
+    // 1. CLÉS API GEMINI
     const key1 = process.env.GEMINI_API_KEY_1;
     const key2 = process.env.GEMINI_API_KEY_2;
     const availableKeys = [key1, key2].filter(Boolean);
@@ -24,7 +24,7 @@ export default async function handler(req, res) {
 
     const keysToTry = availableKeys.sort(() => Math.random() - 0.5);
 
-    // 2. MODÈLES GEMINI ORIGINAUX
+    // 2. MODÈLES GEMINI
     const modelsToTry = [
       'gemini-flash-latest',
       'gemini-2.5-flash',
@@ -98,62 +98,53 @@ export default async function handler(req, res) {
     }
 
     // 5. RECHERCHE SUR L'API TCG
-    const searchName = nomEn.replace(/[^a-zA-Z0-9 ]/g, '').trim();
-    const numAsInt = parseInt(numRaw, 10);
-    const numIntStr = !isNaN(numAsInt) ? numAsInt.toString() : '';
-
-    let queries = [];
-    if (numIntStr) queries.push(`name:${searchName} number:${numIntStr}`);
-    if (numRaw && numRaw !== numIntStr) queries.push(`name:${searchName} number:${numRaw}`);
-    queries.push(`name:${searchName}`);
-
+    const cleanSearchName = nomEn.replace(/[^a-zA-Z0-9 ]/g, '').trim().toLowerCase();
     let candidates = [];
 
-    for (const q of queries) {
-      try {
-        const urlTCG = `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(q)}`;
-        const tcgRes = await fetch(urlTCG, { signal: AbortSignal.timeout(6000) });
+    try {
+      // Recherche souple par nom
+      const urlTCG = `https://api.pokemontcg.io/v2/cards?q=name:"${encodeURIComponent(nomEn)}"`;
+      const tcgRes = await fetch(urlTCG, { signal: AbortSignal.timeout(6000) });
 
-        if (tcgRes.ok) {
-          const tcgData = await tcgRes.json();
-          const results = tcgData.data || [];
+      if (tcgRes.ok) {
+        const tcgData = await tcgRes.json();
+        const results = tcgData.data || [];
 
-          // VERROU STRICT : Ne garder que si le nom correspond VRAIMENT
-          const validResults = results.filter(c => 
-            c.name.toLowerCase().includes(searchName.toLowerCase())
-          );
+        // VERROU STRICT : Le nom du Pokémon renvoyé DOIT contenir le nom cherché
+        const exactMatches = results.filter(c => {
+          const apiName = c.name.toLowerCase();
+          return apiName.includes(cleanSearchName);
+        });
 
-          if (validResults.length > 0) {
-            candidates = validResults.slice(0, 8).map(c => {
-              let price = 0;
-              if (c.cardmarket?.prices) {
-                const cm = c.cardmarket.prices;
-                price = cm.trendPrice || cm.avg1 || cm.averageSellPrice || cm.lowPrice || 0;
-              } else if (c.tcgplayer?.prices) {
-                const tp = c.tcgplayer.prices;
-                const variant = tp.normal || tp.holofoil || tp.reverseHolofoil || tp.unlimited || {};
-                const usdPrice = variant.market || variant.mid || 0;
-                price = usdPrice * 0.92;
-              }
+        if (exactMatches.length > 0) {
+          candidates = exactMatches.slice(0, 8).map(c => {
+            let price = 0;
+            if (c.cardmarket?.prices) {
+              const cm = c.cardmarket.prices;
+              price = cm.trendPrice || cm.avg1 || cm.averageSellPrice || cm.lowPrice || 0;
+            } else if (c.tcgplayer?.prices) {
+              const tp = c.tcgplayer.prices;
+              const variant = tp.normal || tp.holofoil || tp.reverseHolofoil || tp.unlimited || {};
+              const usdPrice = variant.market || variant.mid || 0;
+              price = usdPrice * 0.92;
+            }
 
-              return {
-                id: c.id,
-                cardName: `${nomFr} (${c.name})`,
-                setName: `${c.set.name} — ${c.number}/${c.set.printedTotal}`,
-                number: c.number,
-                price: Number(price.toFixed(2)),
-                imageUrl: c.images?.large || c.images?.small
-              };
-            });
-            break;
-          }
+            return {
+              id: c.id,
+              cardName: `${nomFr} (${c.name})`,
+              setName: `${c.set.name} — ${c.number}/${c.set.printedTotal}`,
+              number: c.number,
+              price: Number(price.toFixed(2)),
+              imageUrl: c.images?.large || c.images?.small
+            };
+          });
         }
-      } catch (e) {
-        console.warn('Erreur TCG:', e.message);
       }
+    } catch (e) {
+      console.warn('Erreur TCG:', e.message);
     }
 
-    // 6. PLAN B : Si l'API TCG renvoie vide ou un faux résultat (Dracaufeu rejeté)
+    // 6. PLAN B (Si la carte est trop récente comme Équilibre Parfait / non référencée)
     if (candidates.length === 0) {
       candidates = [{
         id: `custom-${Date.now()}`,
