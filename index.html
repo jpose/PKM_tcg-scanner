@@ -4,159 +4,339 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Scanner Carte Pokémon</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --primary: #ef5350;
+      --primary-hover: #d32f2f;
+      --bg: #f4f6f8;
+      --card-bg: #ffffff;
+      --text: #333333;
+      --success: #2e7d32;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 600px;
+      background: var(--card-bg);
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    }
+
+    h1 {
+      text-align: center;
+      margin-top: 0;
+      color: var(--primary);
+    }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    button, label.btn {
+      background-color: var(--primary);
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: bold;
+      font-size: 14px;
+      transition: background 0.2s;
+      display: inline-block;
+    }
+
+    button:hover, label.btn:hover {
+      background-color: var(--primary-hover);
+    }
+
+    input[type="file"] {
+      display: none;
+    }
+
+    #video-container {
+      position: relative;
+      width: 100%;
+      max-width: 400px;
+      margin: 0 auto 20px;
+      display: none;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #000;
+    }
+
+    video {
+      width: 100%;
+      display: block;
+    }
+
+    #capture-btn {
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(239, 83, 80, 0.9);
+    }
+
+    .loader {
+      display: none;
+      text-align: center;
+      margin: 20px 0;
+      font-weight: bold;
+      color: #666;
+    }
+
+    /* Grille de sélection */
+    #selection-zone {
+      display: none;
+      margin-top: 20px;
+    }
+
+    #selection-zone h3 {
+      font-size: 1.1em;
+      margin-bottom: 10px;
+      text-align: center;
+    }
+
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      gap: 12px;
+    }
+
+    .card-item {
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 8px;
+      text-align: center;
+      cursor: pointer;
+      background: #fff;
+      transition: transform 0.15s, border-color 0.15s;
+    }
+
+    .card-item:hover {
+      transform: translateY(-3px);
+      border-color: var(--primary);
+    }
+
+    .card-item img {
+      width: 100%;
+      border-radius: 4px;
+      object-fit: contain;
+    }
+
+    .card-item .set-title {
+      font-size: 0.75em;
+      margin: 6px 0 2px;
+      font-weight: bold;
+      color: #555;
+    }
+
+    .card-item .price-tag {
+      color: var(--success);
+      font-weight: bold;
+      font-size: 0.9em;
+      margin: 0;
+    }
+
+    /* Résultat final */
+    #result-zone {
+      display: none;
+      text-align: center;
+      margin-top: 20px;
+      padding: 15px;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      background: #fafafa;
+    }
+
+    #result-zone img {
+      max-width: 200px;
+      border-radius: 6px;
+      margin-bottom: 10px;
+    }
+
+    #res-price {
+      font-size: 1.4em;
+      color: var(--success);
+      font-weight: bold;
+      margin: 10px 0 0;
+    }
+  </style>
 </head>
-<body class="bg-slate-900 text-white min-h-screen flex flex-col items-center justify-center p-4">
+<body>
 
-  <div class="max-w-md w-full bg-slate-800 rounded-2xl shadow-2xl overflow-hidden border border-slate-700 p-6 flex flex-col items-center">
-    
-    <h1 class="text-2xl font-bold mb-4 text-center text-amber-400">Scanner de Carte</h1>
+  <div class="container">
+    <h1>Scanner PokéCard</h1>
 
-    <!-- 1. Vue Caméra -->
-    <div id="cameraView" class="w-full flex flex-col items-center">
-      <div class="relative w-full aspect-[3/4] bg-black rounded-xl overflow-hidden mb-4 border-2 border-amber-400/50 shadow-inner">
-        <video id="video" autoplay playsinline class="w-full h-full object-cover"></video>
-      </div>
-      <button onclick="captureAndScan()" class="w-full py-3.5 bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold rounded-xl shadow-lg transition duration-200 text-lg">
-        Prendre la photo
-      </button>
+    <div class="controls">
+      <button id="start-cam-btn">Ouvrir la caméra</button>
+      <label class="btn" for="file-input">Importer une photo</label>
+      <input type="file" id="file-input" accept="image/*">
     </div>
 
-    <!-- 2. Vue Chargement -->
-    <div id="loadingView" class="hidden w-full flex flex-col items-center justify-center py-12">
-      <div class="animate-spin rounded-full h-16 w-16 border-4 border-amber-400 border-t-transparent mb-4"></div>
-      <p class="text-slate-300 font-medium text-center">Analyse IA & estimation en cours...</p>
+    <div id="video-container">
+      <video id="video" autoplay playsinline></video>
+      <button id="capture-btn">Prendre la photo</button>
     </div>
 
-    <!-- 3. Vue Résultat -->
-    <div id="resultView" class="hidden w-full flex flex-col items-center">
-      <div id="errorBox" class="hidden w-full p-4 mb-4 bg-red-900/50 border border-red-500 rounded-xl text-red-200 text-sm text-center"></div>
-
-      <img id="cardImg" src="" alt="Carte Pokémon" class="w-48 h-64 object-contain rounded-lg shadow-xl mb-4 border border-slate-600 bg-slate-950 hidden">
-      
-      <h2 id="cardName" class="text-xl font-bold text-center mb-1 text-white"></h2>
-      <p id="cardSet" class="text-slate-400 text-sm text-center mb-4"></p>
-      
-      <div class="bg-slate-700/50 px-6 py-3 rounded-xl border border-slate-600 mb-6 text-center w-full shadow-inner">
-        <span class="text-xs text-slate-400 uppercase tracking-wider block font-semibold">Cote Cardmarket</span>
-        <span id="cardPrice" class="text-3xl font-black text-amber-400"></span>
-      </div>
-
-      <button onclick="startCamera()" class="w-full py-3.5 bg-slate-700 hover:bg-slate-600 font-bold rounded-xl transition duration-200 text-white">
-        Scanner une autre carte
-      </button>
+    <div id="loader" class="loader">
+      Analyse en cours par l'IA...
     </div>
 
+    <!-- Grille des cartes candidates -->
+    <div id="selection-zone">
+      <h3>Choisissez votre carte dans la liste :</h3>
+      <div id="cards-grid" class="cards-grid"></div>
+    </div>
+
+    <!-- Carte sélectionnée -->
+    <div id="result-zone">
+      <img id="res-img" src="" alt="Carte sélectionnée">
+      <h2 id="res-title" style="margin: 5px 0;"></h2>
+      <p id="res-set" style="margin: 5px 0; color: #666;"></p>
+      <p id="res-price"></p>
+    </div>
   </div>
 
   <script>
+    const videoContainer = document.getElementById('video-container');
     const video = document.getElementById('video');
-    const cameraView = document.getElementById('cameraView');
-    const loadingView = document.getElementById('loadingView');
-    const resultView = document.getElementById('resultView');
-    const errorBox = document.getElementById('errorBox');
-    
-    let currentStream = null;
+    const startCamBtn = document.getElementById('start-cam-btn');
+    const captureBtn = document.getElementById('capture-btn');
+    const fileInput = document.getElementById('file-input');
+    const loader = document.getElementById('loader');
+    const selectionZone = document.getElementById('selection-zone');
+    const cardsGrid = document.getElementById('cards-grid');
+    const resultZone = document.getElementById('result-zone');
 
-    // Démarrage de la caméra
-    async function startCamera() {
-      resultView.classList.add('hidden');
-      loadingView.classList.add('hidden');
-      cameraView.classList.remove('hidden');
-      errorBox.classList.add('hidden');
+    let stream = null;
 
+    // Active la caméra
+    startCamBtn.onclick = async () => {
       try {
-        currentStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
-          audio: false
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' }
         });
-        video.srcObject = currentStream;
+        video.srcObject = stream;
+        videoContainer.style.display = 'block';
       } catch (err) {
-        showError("Impossible d'accéder à la caméra. Vérifiez les autorisations de votre navigateur.");
-        cameraView.classList.add('hidden');
-        resultView.classList.remove('hidden');
+        alert("Impossible d'accéder à la caméra : " + err.message);
       }
-    }
+    };
 
-    // Arrêt du flux vidéo
-    function stopCamera() {
-      if (currentStream) {
-        currentStream.getTracks().forEach(track => track.stop());
-        currentStream = null;
-      }
-    }
-
-    // Affichage des erreurs
-    function showError(msg) {
-      errorBox.textContent = msg;
-      errorBox.classList.remove('hidden');
-    }
-
-    // Capture de la photo et appel de l'API Vercel
-    async function captureAndScan() {
-      if (!currentStream) return;
-
+    // Capture depuis la caméra
+    captureBtn.onclick = () => {
       const canvas = document.createElement('canvas');
-      const maxDim = 800; // Taille idéale pour Gemini 1.5 Flash (lisible et très rapide)
-      let w = video.videoWidth || 640;
-      let h = video.videoHeight || 480;
-
-      if (w > maxDim || h > maxDim) {
-        if (w > h) {
-          h = Math.round((h * maxDim) / w);
-          w = maxDim;
-        } else {
-          w = Math.round((w * maxDim) / h);
-          h = maxDim;
-        }
-      }
-
-      canvas.width = w;
-      canvas.height = h;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
       const ctx = canvas.getContext('2d');
-      ctx.drawImage(video, 0, 0, w, h);
+      ctx.drawImage(video, 0, 0);
 
-      // Compression à 60% : le fichier pèse moins de 100 Ko
-      const imageData = canvas.toDataURL('image/jpeg', 0.6);
+      // Fermeture du flux caméra
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+      videoContainer.style.display = 'none';
 
-      stopCamera();
-      cameraView.classList.add('hidden');
-      loadingView.classList.remove('hidden');
+      // Compression / Envoi
+      const base64Image = canvas.toDataURL('image/jpeg', 0.8);
+      sendImageToScan(base64Image);
+    };
+
+    // Import de fichier image
+    fileInput.onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        sendImageToScan(event.target.result);
+      };
+      reader.readAsDataURL(file);
+    };
+
+    // Envoi à l'API serverless /api/scan
+    async function sendImageToScan(base64Image) {
+      selectionZone.style.display = 'none';
+      resultZone.style.display = 'none';
+      loader.style.display = 'block';
 
       try {
         const response = await fetch('/api/scan', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: imageData })
+          body: JSON.stringify({ image: base64Image })
         });
 
         const data = await response.json();
+        loader.style.display = 'none';
 
-        loadingView.classList.add('hidden');
-        resultView.classList.remove('hidden');
-
-        if (!response.ok || data.error) {
-          return showError(data.error || "Une erreur est survenue lors du traitement.");
+        if (data.error) {
+          alert('Erreur : ' + data.error);
+          return;
         }
 
-        // Affichage des résultats renvoyés par l'API
-        document.getElementById('cardName').textContent = data.cardName;
-        document.getElementById('cardSet').textContent = data.setName;
-        document.getElementById('cardPrice').textContent = data.price > 0 ? `${data.price.toFixed(2)} €` : 'Non cotée';
-        
-        const imgEl = document.getElementById('cardImg');
-        imgEl.src = data.imageUrl;
-        imgEl.classList.remove('hidden');
+        if (!data.candidates || data.candidates.length === 0) {
+          alert("Aucune carte Pokémon n'a été identifiée.");
+          return;
+        }
+
+        // Si une seule carte correspond
+        if (data.candidates.length === 1) {
+          displayFinalCard(data.candidates[0]);
+          return;
+        }
+
+        // Si plusieurs cartes, affichage de la grille de choix
+        cardsGrid.innerHTML = '';
+        data.candidates.forEach(card => {
+          const cardEl = document.createElement('div');
+          cardEl.className = 'card-item';
+          cardEl.innerHTML = `
+            <img src="${card.imageUrl}" alt="Carte" loading="lazy">
+            <p class="set-title">${card.setName}</p>
+            <p class="price-tag">${card.price > 0 ? card.price + ' €' : 'Non cotée'}</p>
+          `;
+          cardEl.onclick = () => displayFinalCard(card);
+          cardsGrid.appendChild(cardEl);
+        });
+
+        selectionZone.style.display = 'block';
 
       } catch (err) {
-        loadingView.classList.add('hidden');
-        resultView.classList.remove('hidden');
-        showError("Erreur de connexion avec le serveur : " + err.message);
+        loader.style.display = 'none';
+        alert('Erreur de connexion au serveur : ' + err.message);
       }
     }
 
-    // Initialisation automatique de la caméra au chargement
-    window.addEventListener('DOMContentLoaded', startCamera);
+    // Affichage de la carte choisie
+    function displayFinalCard(card) {
+      selectionZone.style.display = 'none';
+
+      document.getElementById('res-img').src = card.imageUrl;
+      document.getElementById('res-title').textContent = card.cardName;
+      document.getElementById('res-set').textContent = card.setName;
+      document.getElementById('res-price').textContent = card.price > 0 
+        ? `Cote estimée : ${card.price} €` 
+        : 'Cote indisponible';
+
+      resultZone.style.display = 'block';
+    }
   </script>
 </body>
 </html>
