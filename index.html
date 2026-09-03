@@ -114,7 +114,7 @@
 
     .cards-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
       gap: 12px;
     }
 
@@ -135,6 +135,7 @@
 
     .card-item img {
       width: 100%;
+      height: 160px;
       border-radius: 4px;
       object-fit: contain;
     }
@@ -165,7 +166,7 @@
     }
 
     #result-zone img {
-      max-width: 180px;
+      max-width: 200px;
       border-radius: 6px;
       margin-bottom: 10px;
     }
@@ -200,7 +201,7 @@
 
     <!-- Zone de sélection -->
     <div id="selection-zone">
-      <h3 id="detected-info">Sélectionnez la carte correspondante :</h3>
+      <h3 id="detected-info">Sélectionnez la version exacte de votre carte :</h3>
       <div id="cards-grid" class="cards-grid"></div>
     </div>
 
@@ -284,16 +285,35 @@
           return;
         }
 
-        if (!data.candidates || data.candidates.length === 0) {
-          alert(`Aucune carte trouvée pour "${data.detectedName || 'Inconnu'}" (#${data.detectedNum || '?'}). Essayez une photo plus nette.`);
-          return;
+        let candidates = data.candidates || [];
+        const detectedName = data.detectedName || 'Inconnu';
+
+        // FILTRE FRONTEND ANTI-DRACAUFEU
+        const isTargetCharizard = detectedName.toLowerCase().includes('dracaufeu') || detectedName.toLowerCase().includes('charizard');
+        if (!isTargetCharizard) {
+          candidates = candidates.filter(card => 
+            !card.cardName.toLowerCase().includes('charizard') && 
+            !card.cardName.toLowerCase().includes('dracaufeu')
+          );
         }
 
-        // Toujours afficher la grille de sélection
-        cardsGrid.innerHTML = '';
-        detectedInfo.textContent = `Pokémon identifié : "${data.detectedName}" — Choisissez l'extension :`;
+        // Si la liste est vide ou si toutes les cartes ont été filtrées, on ajoute la photo du scan
+        if (candidates.length === 0) {
+          candidates = [{
+            id: `custom-${Date.now()}`,
+            cardName: `${detectedName}`,
+            setName: 'Extension non répertoriée / récente',
+            number: data.detectedNum || '?',
+            price: 0,
+            imageUrl: base64Image
+          }];
+        }
 
-        data.candidates.forEach(card => {
+        // CONSTRUCTION ET AFFICHAGE DE LA GRILLE
+        cardsGrid.innerHTML = '';
+        detectedInfo.textContent = `Pokémon identifié : "${detectedName}" — Sélectionnez l'extension :`;
+
+        candidates.forEach(card => {
           const cardEl = document.createElement('div');
           cardEl.className = 'card-item';
           cardEl.innerHTML = `
@@ -329,6 +349,7 @@
     function resetView() {
       resultZone.style.display = 'none';
       selectionZone.style.display = 'none';
+      fileInput.value = '';
     }
   </script>
 </body>
