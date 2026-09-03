@@ -1,5 +1,4 @@
 export default async function handler(req, res) {
-  // S'assure que Vercel renvoie TOUJOURS du JSON
   res.setHeader('Content-Type', 'application/json');
 
   if (req.method !== 'POST') {
@@ -18,7 +17,7 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Clé GEMINI_API_KEY manquante dans les variables Vercel.' });
     }
 
-    // 1. Récupération de la liste des modèles pour valider la présence de 3.6-flash
+    // 1. Récupération de la liste des modèles disponibles
     const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${geminiApiKey}`;
     const listResponse = await fetch(listUrl);
     const listData = await listResponse.json();
@@ -31,65 +30,82 @@ export default async function handler(req, res) {
 
     const availableModels = listData.models || [];
 
-    // Priorité absolue : recherche de gemini-3.6-flash
-    let targetModel = availableModels.find(m => m.name.includes('gemini-3.6-flash'));
+    // Sélection ordonnée des modèles à tenter en cas de surcharge
+    const primaryModel = availableModels.find(m => m.name.includes('gemini-3.6-flash')) ||
+                         availableModels.find(m => m.name.includes('3.6'));
+    
+    const fallbackModels = availableModels.filter(m => 
+      m.supportedGenerationMethods?.includes('generateContent') && m.name !== primaryModel?.name
+    );
 
-    // Si non trouvé, recherche d'un modèle 3.6
-    if (!targetModel) {
-      targetModel = availableModels.find(m => m.name.includes('3.6'));
+    // File d'attente de test : Priorité au modèle choisi, puis replis
+    const candidates = [primaryModel, ...fallbackModels].filter(Boolean);
+
+    if (candidates.length === 0) {
+      return res.status(404).json({ error: 'Aucun modèle disponible sur cette clé API.' });
     }
-
-    // Repli sur le premier modèle supportant generateContent si 3.6 est introuvable
-    if (!targetModel) {
-      targetModel = availableModels.find(m => m.supportedGenerationMethods?.includes('generateContent'));
-    }
-
-    if (!targetModel) {
-      return res.status(404).json({
-        error: 'Aucun modèle compatible trouvé sur cette clé API.',
-        availableModels: availableModels.map(m => m.name)
-      });
-    }
-
-    const modelName = targetModel.name.replace('models/', '');
 
     // 2. Nettoyage de l'image Base64
     const base64Data = image.split(',')[1] || image;
     const mimeType = image.split(';')[0].split(':')[1] || 'image/jpeg';
-
-    // 3. Appel de l'API avec le modèle sélectionné
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
 
     const promptText = `Analyse cette image de carte Pokémon TCG.
 Identifie le nom de la carte et son numéro (ex: 4/102 ou 058/102).
 Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans aucun texte autour ni balises markdown :
 {"cardName": "Nom de la carte", "cardNumber": "numéro"}`;
 
-    const geminiResponse = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: promptText },
-              {
-                inline_data: {
-                  mime_type: mimeType,
-                  data: base64Data
+    let geminiData = null;
+    let usedModelName = '';
+    let lastErrorDetails = '';
+
+    // 3. Boucle de tentative avec gestion de la surcharge (503 / 429)
+    for (const modelObj of candidates) {
+      const modelName = modelObj.name.replace('models/', '');
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
+
+      const response = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { text: promptText },
+                {
+                  inline_data: {
+                    mime_type: mimeType,
+                    data: base64Data
+                  }
                 }
-              }
-            ]
-          }
-        ]
-      })
-    });
+              ]
+            }
+          ]
+        })
+      });
 
-    const geminiData = await geminiResponse.json();
+      const data = await response.json();
 
-    if (!geminiResponse.ok) {
-      return res.status(geminiResponse.status).json({
-        error: `Erreur Gemini avec le modèle ${modelName} (${geminiResponse.status}) : ` + (geminiData.error?.message || JSON.stringify(geminiData))
+      if (response.ok) {
+        geminiData = data;
+        usedModelName = modelName;
+        break; // Succès !
+      }
+
+      // Si le modèle est surchargé (503) ou en limite de quota (429), on essaye le suivant
+      if (response.status === 503 || response.status === 429) {
+        lastErrorDetails = `Modèle ${modelName} surchargé (${response.status})`;
+        continue;
+      } else {
+        // Autre erreur fatale
+        return res.status(response.status).json({
+          error: `Erreur Gemini avec ${modelName} (${response.status}) : ` + (data.error?.message || JSON.stringify(data))
+        });
+      }
+    }
+
+    if (!geminiData) {
+      return res.status(503).json({
+        error: `Tous les modèles Gemini sont actuellement surchargés. Veuillez réentreprendre l'analyse dans quelques instants. (${lastErrorDetails})`
       });
     }
 
@@ -134,7 +150,7 @@ Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans aucun tex
       setName: matchedCard ? `${matchedCard.set.name} (${matchedCard.number}/${matchedCard.set.printedTotal})` : 'Extension non trouvée',
       estimatedPrice: price || 0,
       imageUrl: matchedCard ? matchedCard.images.large : '',
-      modelUsed: modelName
+      modelUsed: usedModelName
     });
 
   } catch (error) {
