@@ -1,4 +1,5 @@
 export default async function handler(req, res) {
+  // Garantit un retour au format JSON même en cas d'erreur
   res.setHeader('Content-Type', 'application/json');
 
   if (req.method !== 'POST') {
@@ -17,118 +18,96 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Clé GEMINI_API_KEY manquante dans les variables Vercel.' });
     }
 
-    // 1. Préparation de l'image Base64
+    // 1. Préparation de l'image
     const base64Data = image.split(',')[1] || image;
     const mimeType = image.split(';')[0].split(':')[1] || 'image/jpeg';
 
     const promptText = `Analyse cette image de carte Pokémon TCG.
 Identifie le nom exact de la carte et son numéro imprimé en bas (ex: 4/102, 058/102 ou 58).
-Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans markdown :
+Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans balises markdown :
 {"cardName": "Nom", "cardNumber": "Numéro"}`;
 
-    const modelName = 'gemini-3.6-flash';
+    // Utilisation d'un modèle Gemini standard
+    const modelName = 'gemini-2.5-flash';
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
 
-    let geminiData = null;
-    let lastError = '';
-    const maxRetries = 3;
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      const response = await fetch(geminiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                { text: promptText },
-                {
-                  inline_data: {
-                    mime_type: mimeType,
-                    data: base64Data
-                  }
-                }
-              ]
-            }
+    // 2. Appel à Gemini
+    const geminiRes = await fetch(geminiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { text: promptText },
+            { inline_data: { mime_type: mimeType, data: base64Data } }
           ]
-        })
-      });
+        }]
+      })
+    });
 
-      const data = await response.json();
+    const geminiData = await geminiRes.json();
 
-      if (response.ok) {
-        geminiData = data;
-        break;
-      }
-
-      lastError = data.error?.message || JSON.stringify(data);
-
-      if ((response.status === 503 || response.status === 429) && attempt < maxRetries) {
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        continue;
-      } else {
-        return res.status(response.status).json({
-          error: `Erreur Gemini (${response.status}) : ${lastError}`
-        });
-      }
+    if (!geminiRes.ok) {
+      const msg = geminiData.error?.message || 'Erreur Gemini inconnue';
+      return res.status(geminiRes.status).json({ error: `Erreur API Gemini : ${msg}` });
     }
 
-    if (!geminiData) {
-      return res.status(503).json({
-        error: `Le modèle ${modelName} est très sollicité. Réessaie dans un instant.`
-      });
-    }
-
-    // 2. Extraction du texte nettoyé
+    // 3. Extraction et nettoyage du JSON Gemini
     let rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
     rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
 
-    let parsedInfo;
+    let parsedInfo = {};
     try {
       parsedInfo = JSON.parse(rawText);
     } catch (e) {
-      return res.status(500).json({ error: 'Erreur de décodage JSON : ' + rawText });
+      return res.status(500).json({ error: 'Erreur de décodage du résultat d\'analyse : ' + rawText });
     }
 
-    const { cardName, cardNumber } = parsedInfo;
+    const cardName = parsedInfo.cardName || '';
+    const cardNumber = parsedInfo.cardNumber || '';
 
-    // 3. Normalisation du numéro (ex: "058/102" -> "58", "4/102" -> "4")
+    // Nettoyage du numéro de carte (ex: "058/102" -> "58")
     let cleanNumber = '';
     if (cardNumber) {
       const rawNum = cardNumber.split('/')[0].trim();
-      cleanNumber = rawNum.replace(/^0+/, '') || rawNum; // Enlève les zéros au début
+      cleanNumber = rawNum.replace(/^0+/, '') || rawNum;
     }
 
-    // 4. Recherche sur l'API Pokémon TCG
+    // 4. Recherche sur l'API Pokémon TCG avec try/catch sécurisé
     let matchedCard = null;
 
-    // Étape A : Recherche ciblée avec nom + numéro
-    if (cleanNumber && cardName) {
-      const strictQuery = `name:"${cardName}" number:"${cleanNumber}"`;
-      const tcgRes = await fetch(`https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(strictQuery)}`);
-      const tcgData = await tcgRes.json();
-
-      if (tcgData.data && tcgData.data.length > 0) {
-        matchedCard = tcgData.data[0];
+    try {
+      if (cleanNumber && cardName) {
+        const query = `name:"${cardName}" number:"${cleanNumber}"`;
+        const tcgRes = await fetch(`https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(query)}`);
+        if (tcgRes.ok) {
+          const tcgData = await tcgRes.json();
+          if (tcgData.data && tcgData.data.length > 0) {
+            matchedCard = tcgData.data[0];
+          }
+        }
       }
+
+      // Recherche de secours par numéro seul
+      if (!matchedCard && cleanNumber) {
+        const query = `number:"${cleanNumber}"`;
+        const tcgRes = await fetch(`https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(query)}`);
+        if (tcgRes.ok) {
+          const tcgData = await tcgRes.json();
+          if (tcgData.data && tcgData.data.length > 0) {
+            matchedCard = tcgData.data.find(c => 
+              c.name.toLowerCase().includes(cardName.toLowerCase()) || 
+              cardName.toLowerCase().includes(c.name.toLowerCase())
+            ) || tcgData.data[0];
+          }
+        }
+      }
+    } catch (tcgErr) {
+      // Si l'API TCG échoue, on continue quand même sans bloquer l'application
+      console.error('Erreur API TCG:', tcgErr);
     }
 
-    // Étape B : Si introuvable, recherche assouplie par numéro uniquement
-    if (!matchedCard && cleanNumber) {
-      const numQuery = `number:"${cleanNumber}"`;
-      const tcgRes = await fetch(`https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(numQuery)}`);
-      const tcgData = await tcgRes.json();
-
-      if (tcgData.data && tcgData.data.length > 0) {
-        // Sélectionne la carte dont le nom se rapproche le plus
-        matchedCard = tcgData.data.find(c => 
-          c.name.toLowerCase().includes(cardName.toLowerCase()) || 
-          cardName.toLowerCase().includes(c.name.toLowerCase())
-        ) || tcgData.data[0];
-      }
-    }
-
-    // 5. Extraction du prix et des métadonnées
+    // 5. Calcul de la côte
     let price = 0;
     if (matchedCard) {
       const prices = matchedCard.cardmarket?.prices || {};
@@ -141,19 +120,19 @@ Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans markdown 
               tcgPrices.reverseHolofoil?.market || 0;
     }
 
-    // 6. Réponse finale
+    // 6. Réponse finale toujours formatée
     return res.status(200).json({
       success: true,
       cardName: matchedCard ? matchedCard.name : (cardName || 'Carte inconnue'),
-      setName: matchedCard ? `${matchedCard.set.name} (${matchedCard.number}/${matchedCard.set.printedTotal})` : 'Extension non trouvée',
+      setName: matchedCard ? `${matchedCard.set.name} (${matchedCard.number}/${matchedCard.set.printedTotal})` : 'Extension introuvable',
       estimatedPrice: Number(price.toFixed(2)),
-      imageUrl: matchedCard ? matchedCard.images.large : '', // Renvoie l'image TCG si trouvée
-      modelUsed: modelName
+      imageUrl: matchedCard ? matchedCard.images.large : ''
     });
 
   } catch (error) {
+    // Intercepte tout crash global pour renvoyer du JSON propre
     return res.status(500).json({ 
-      error: 'Erreur serveur : ' + error.message 
+      error: 'Erreur interne du serveur : ' + error.message 
     });
   }
 }
