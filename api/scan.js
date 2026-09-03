@@ -1,5 +1,4 @@
 export default async function handler(req, res) {
-  // Force le header JSON pour éviter que Vercel ne renvoie du texte/HTML
   res.setHeader('Content-Type', 'application/json');
 
   if (req.method !== 'POST') {
@@ -18,16 +17,16 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Clé GEMINI_API_KEY manquante dans les variables Vercel.' });
     }
 
-    // 1. Préparation de l'image Base64
+    // 1. Nettoyage de l'image Base64
     const base64Data = image.split(',')[1] || image;
     const mimeType = image.split(';')[0].split(':')[1] || 'image/jpeg';
 
-    // 2. Appel direct REST à l'API Gemini (sans package externe)
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
+    // 2. URL mise à jour avec le modèle gemini-2.5-flash
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
 
     const promptText = `Analyse cette image de carte Pokémon TCG.
 Identifie le nom de la carte et son numéro (ex: 4/102 ou 058/102).
-Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans balise markdown ni texte superflu :
+Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans texte ni markdown :
 {"cardName": "Nom de la carte", "cardNumber": "numéro"}`;
 
     const geminiResponse = await fetch(geminiUrl, {
@@ -58,7 +57,7 @@ Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans balise ma
       });
     }
 
-    // 3. Extraction de la réponse texte de Gemini
+    // 3. Extraction de la réponse
     let rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
     rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
 
@@ -83,7 +82,7 @@ Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans balise ma
 
     const matchedCard = tcgData.data && tcgData.data.length > 0 ? tcgData.data[0] : null;
 
-    // 5. Récupération de la côte
+    // 5. Récupération du prix Cardmarket ou TCGPlayer
     let price = 0;
     if (matchedCard?.cardmarket?.prices?.averageSellPrice) {
       price = matchedCard.cardmarket.prices.averageSellPrice;
@@ -93,7 +92,7 @@ Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans balise ma
       price = matchedCard.tcgplayer.prices.normal.market;
     }
 
-    // 6. Envoi de la réponse valide
+    // 6. Envoi de la réponse finale
     return res.status(200).json({
       success: true,
       cardName: matchedCard ? matchedCard.name : (cardName || 'Carte inconnue'),
