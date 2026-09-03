@@ -25,7 +25,7 @@
     <!-- Vue Chargement -->
     <div id="loadingView" class="hidden w-full flex flex-col items-center justify-center py-12">
       <div class="animate-spin rounded-full h-16 w-16 border-b-2 border-amber-400 mb-4"></div>
-      <p class="text-slate-300 font-medium">Analyse de la carte en cours...</p>
+      <p class="text-slate-300 font-medium">Analyse et recherche de cote en cours...</p>
     </div>
 
     <!-- Vue Résultat -->
@@ -34,14 +34,14 @@
       <!-- Box Erreur -->
       <div id="errorBox" class="hidden w-full p-4 mb-4 bg-red-900/50 border border-red-500 rounded-xl text-red-200 text-sm"></div>
 
-      <!-- Informations Carte -->
-      <img id="cardImg" src="" alt="Image de la carte" class="w-48 rounded-lg shadow-md mb-4 hidden border border-slate-600">
+      <!-- Image de la carte (Officielle ou Photo scannée) -->
+      <img id="cardImg" src="" alt="Photo de la carte" class="w-48 h-64 object-contain rounded-lg shadow-md mb-4 border border-slate-600 bg-slate-950">
       
       <h2 id="cardName" class="text-xl font-bold text-center mb-1"></h2>
       <p id="cardSet" class="text-slate-400 text-sm text-center mb-4"></p>
       
       <div class="bg-slate-700/50 px-6 py-3 rounded-xl border border-slate-600 mb-6 text-center w-full">
-        <span class="text-xs text-slate-400 uppercase tracking-wider block">Prix estimé</span>
+        <span class="text-xs text-slate-400 uppercase tracking-wider block">Cote estimée (Cardmarket EUR)</span>
         <span id="cardPrice" class="text-2xl font-black text-amber-400"></span>
       </div>
 
@@ -99,7 +99,6 @@
     async function captureAndScan() {
       if (!currentStream) return;
 
-      // Redimensionnement à 600px max pour alléger le transfert
       const canvas = document.createElement('canvas');
       const maxDim = 600;
       let w = video.videoWidth || 640;
@@ -121,7 +120,6 @@
       const ctx = canvas.getContext('2d');
       ctx.drawImage(video, 0, 0, w, h);
 
-      // Compression JPEG à 0.5 (fichier très léger, parfait pour l'OCR)
       const imageData = canvas.toDataURL('image/jpeg', 0.5);
 
       stopCamera();
@@ -139,7 +137,6 @@
         const responseText = await response.text();
         let data;
 
-        // Validation du format JSON pour éviter le crash en cas d'erreur HTML/Texte
         try {
           data = JSON.parse(responseText);
         } catch (e) {
@@ -160,8 +157,14 @@
         errorBox.classList.add('hidden');
         cardName.textContent = data.cardName || 'Carte inconnue';
         cardSet.textContent = data.setName || 'Extension inconnue';
-        cardPrice.textContent = `${data.estimatedPrice ?? 0} €`;
+        
+        if (data.estimatedPrice && data.estimatedPrice > 0) {
+          cardPrice.textContent = `${data.estimatedPrice} €`;
+        } else {
+          cardPrice.textContent = 'Non cotée / Inconnue';
+        }
 
+        // Affiche systématiquement l'image (officielle ou la photo scannée)
         if (data.imageUrl) {
           cardImg.src = data.imageUrl;
           cardImg.classList.remove('hidden');
@@ -176,7 +179,6 @@
       }
     }
 
-    // Lancement de la caméra à l'ouverture de la page
     window.addEventListener('DOMContentLoaded', startCamera);
   </script>
 </body>
