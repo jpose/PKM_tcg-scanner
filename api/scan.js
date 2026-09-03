@@ -26,7 +26,7 @@ export default async function handler(req, res) {
 
     const keysToTry = availableKeys.sort(() => Math.random() - 0.5);
 
-    // 2. MODÈLES A TESTER
+    // 2. MODÈLES À TESTER
     const modelsToTry = [
       'gemini-flash-latest',
       'gemini-2.5-flash',
@@ -39,12 +39,12 @@ export default async function handler(req, res) {
     const prompt = `Tu es un expert Pokémon. Analyse cette carte et renvoie UNIQUEMENT un objet JSON valide avec ces 3 clés :
     - "fr": Le nom de la carte en français.
     - "en": Le nom de la carte en anglais (très important).
-    - "num": Le numéro de la carte (ex: "25" si "025/185"). S'il n'y a pas de numéro, mets "".`;
+    - "num": Le numéro exact de la carte visible en bas (ex: "25" si "025/185"). S'il n'y a pas de numéro, mets "".`;
 
     let rawResultText = null;
     let lastError = null;
 
-    // 3. BOUCLE GEMINI (Timeout étendu à 15s + désactivation du Thinking pour la vitesse)
+    // 3. EXÉCUTION GEMINI (Thinking désactivé + Timeout 15s)
     keyLoop: for (const apiKey of keysToTry) {
       for (const model of modelsToTry) {
         try {
@@ -63,10 +63,10 @@ export default async function handler(req, res) {
               generationConfig: {
                 response_mime_type: 'application/json',
                 temperature: 0.1,
-                thinkingConfig: { thinkingBudget: 0 } // Désactive le temps de réflexion pour une réponse rapide
+                thinkingConfig: { thinkingBudget: 0 }
               }
             }),
-            signal: AbortSignal.timeout(15000) // Augmenté à 15 secondes
+            signal: AbortSignal.timeout(15000)
           });
 
           if (!geminiRes.ok) {
@@ -93,7 +93,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // 4. PARSING JSON
+    // 4. PARSING DU JSON GEMINI
     let cardData = {};
     try {
       cardData = JSON.parse(rawResultText);
@@ -105,13 +105,14 @@ export default async function handler(req, res) {
     const nomFr = cardData.fr || nomEn;
     let num = cardData.num || '';
 
+    // Nettoyage du numéro : "025/185" -> "25"
     if (num.includes('/')) {
       num = num.split('/')[0].replace(/^0+/, '');
     } else {
       num = num.replace(/^0+/, '');
     }
 
-    // 5. APPEL API POKÉMON TCG
+    // 5. RECHERCHE DANS L'API POKÉMON TCG
     let tcgCard = null;
 
     if (nomEn || num) {
@@ -119,7 +120,7 @@ export default async function handler(req, res) {
         let q = [];
         if (nomEn) {
           const cleanName = nomEn.replace(/[^a-zA-Z0-9 ]/g, '').trim();
-          if (cleanName) q.push(`name:"*${cleanName}*"`);
+          if (cleanName) q.push(`name:"${cleanName}"`);
         }
         if (num) {
           q.push(`number:"${num}"`);
@@ -127,7 +128,7 @@ export default async function handler(req, res) {
 
         const tcgRes = await fetch(
           `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(q.join(' '))}`,
-          { signal: AbortSignal.timeout(6000) } // Timeout étendu à 6s
+          { signal: AbortSignal.timeout(6000) }
         );
 
         if (tcgRes.ok) {
@@ -135,6 +136,7 @@ export default async function handler(req, res) {
           const cards = tcgData.data || [];
 
           if (cards.length > 0) {
+            // Priorité absolue au numéro exact s'il existe
             tcgCard = cards.find(c => String(c.number) === String(num)) || cards[0];
           }
         }
@@ -143,17 +145,29 @@ export default async function handler(req, res) {
       }
     }
 
-    // 6. CALCUL COTE
+    // 6. CALCUL STRICT ET RÉALISTE DE LA COTE
     let price = 0;
+
     if (tcgCard?.cardmarket?.prices) {
       const cm = tcgCard.cardmarket.prices;
-      price = cm.trendPrice || cm.averageSellPrice || cm.lowPrice || 0;
+      // Prix Cardmarket (Euros) : Prix de tendance ou moyenne des ventes
+      price = cm.trendPrice || cm.avg1 || cm.avg7 || cm.averageSellPrice || cm.lowPrice || 0;
     } else if (tcgCard?.tcgplayer?.prices) {
       const tp = tcgCard.tcgplayer.prices;
-      const usdPrice = tp.normal?.market || tp.holofoil?.market || tp.reverseHolofoil?.market || 0;
-      price = usdPrice * 0.9;
+      
+      // Sélection de la variante (normale en priorité)
+      const variant = tp.normal || tp.holofoil || tp.reverseHolofoil || tp.unlimited || {};
+      
+      // Utilisation du prix moyen de marché (market) et non des extrêmes
+      const usdPrice = variant.market || variant.mid || variant.low || 0;
+      
+      // Conversion approximative USD -> EUR
+      price = usdPrice * 0.92;
     }
 
+    if (isNaN(price)) price = 0;
+
+    // 7. RETOUR DU RÉSULTAT
     return res.status(200).json({
       cardName: tcgCard ? `${nomFr} (${tcgCard.name})` : (nomFr || 'Carte inconnue'),
       setName: tcgCard ? `${tcgCard.set.name} — ${tcgCard.number}/${tcgCard.set.printedTotal}` : 'Extension introuvable',
