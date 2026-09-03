@@ -26,7 +26,7 @@ export default async function handler(req, res) {
 
     const keysToTry = availableKeys.sort(() => Math.random() - 0.5);
 
-    // 2. MODÈLES ACTIFS D'APRÈS TON COMPTE
+    // 2. MODÈLES A TESTER
     const modelsToTry = [
       'gemini-flash-latest',
       'gemini-2.5-flash',
@@ -44,7 +44,7 @@ export default async function handler(req, res) {
     let rawResultText = null;
     let lastError = null;
 
-    // 3. EXÉCUTION (Boucle sur clés et modèles disponibles)
+    // 3. BOUCLE GEMINI (Timeout étendu à 15s + désactivation du Thinking pour la vitesse)
     keyLoop: for (const apiKey of keysToTry) {
       for (const model of modelsToTry) {
         try {
@@ -62,10 +62,11 @@ export default async function handler(req, res) {
               }],
               generationConfig: {
                 response_mime_type: 'application/json',
-                temperature: 0.1
+                temperature: 0.1,
+                thinkingConfig: { thinkingBudget: 0 } // Désactive le temps de réflexion pour une réponse rapide
               }
             }),
-            signal: AbortSignal.timeout(8000)
+            signal: AbortSignal.timeout(15000) // Augmenté à 15 secondes
           });
 
           if (!geminiRes.ok) {
@@ -88,7 +89,7 @@ export default async function handler(req, res) {
 
     if (!rawResultText) {
       return res.status(502).json({ 
-        error: `Erreur API Gemini : ${lastError?.message || 'Tous les modèles ont échoué.'}` 
+        error: `Délai dépassé ou erreur Gemini : ${lastError?.message || 'Aucune réponse reçue à temps.'}` 
       });
     }
 
@@ -126,7 +127,7 @@ export default async function handler(req, res) {
 
         const tcgRes = await fetch(
           `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(q.join(' '))}`,
-          { signal: AbortSignal.timeout(4000) }
+          { signal: AbortSignal.timeout(6000) } // Timeout étendu à 6s
         );
 
         if (tcgRes.ok) {
