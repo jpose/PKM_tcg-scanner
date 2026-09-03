@@ -1,6 +1,5 @@
-import { GoogleGenAI } from '@google/genai';
-
 export default async function handler(req, res) {
+  // Force le header JSON pour éviter que Vercel ne renvoie du texte/HTML
   res.setHeader('Content-Type', 'application/json');
 
   if (req.method !== 'POST') {
@@ -14,49 +13,65 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Aucune image n\'a été fournie.' });
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
+    const geminiApiKey = process.env.GEMINI_API_KEY;
+    if (!geminiApiKey) {
       return res.status(500).json({ error: 'Clé GEMINI_API_KEY manquante dans les variables Vercel.' });
     }
 
-    // 1. Initialisation SDK Gemini
-    const ai = new GoogleGenAI({ apiKey });
-
+    // 1. Préparation de l'image Base64
     const base64Data = image.split(',')[1] || image;
     const mimeType = image.split(';')[0].split(':')[1] || 'image/jpeg';
 
+    // 2. Appel direct REST à l'API Gemini (sans package externe)
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
+
     const promptText = `Analyse cette image de carte Pokémon TCG.
 Identifie le nom de la carte et son numéro (ex: 4/102 ou 058/102).
-Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans aucun texte autour :
+Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans balise markdown ni texte superflu :
 {"cardName": "Nom de la carte", "cardNumber": "numéro"}`;
 
-    // 2. Appel Gemini via le SDK officiel
-    const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
-      contents: [
-        {
-          inlineData: {
-            mimeType: mimeType,
-            data: base64Data,
-          },
-        },
-        promptText,
-      ],
+    const geminiResponse = await fetch(geminiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              { text: promptText },
+              {
+                inline_data: {
+                  mime_type: mimeType,
+                  data: base64Data
+                }
+              }
+            ]
+          }
+        ]
+      })
     });
 
-    let rawText = response.text || '';
+    const geminiData = await geminiResponse.json();
+
+    if (!geminiResponse.ok) {
+      return res.status(geminiResponse.status).json({
+        error: `Erreur API Google Gemini (${geminiResponse.status}) : ` + (geminiData.error?.message || JSON.stringify(geminiData))
+      });
+    }
+
+    // 3. Extraction de la réponse texte de Gemini
+    let rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
     rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
 
     let parsedInfo;
     try {
       parsedInfo = JSON.parse(rawText);
     } catch (e) {
-      return res.status(500).json({ error: 'Réponse Gemini illisible : ' + rawText });
+      return res.status(500).json({ error: 'Erreur lors du décodage du JSON de Gemini : ' + rawText });
     }
 
     const { cardName, cardNumber } = parsedInfo;
 
-    // 3. Appel API Pokémon TCG
+    // 4. Recherche de la carte sur l'API officielle Pokémon TCG
     let searchQuery = `name:"${cardName}"`;
     if (cardNumber) {
       const cleanNum = cardNumber.split('/')[0].trim();
@@ -68,7 +83,7 @@ Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans aucun tex
 
     const matchedCard = tcgData.data && tcgData.data.length > 0 ? tcgData.data[0] : null;
 
-    // 4. Extraction du prix
+    // 5. Récupération de la côte
     let price = 0;
     if (matchedCard?.cardmarket?.prices?.averageSellPrice) {
       price = matchedCard.cardmarket.prices.averageSellPrice;
@@ -78,6 +93,7 @@ Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans aucun tex
       price = matchedCard.tcgplayer.prices.normal.market;
     }
 
+    // 6. Envoi de la réponse valide
     return res.status(200).json({
       success: true,
       cardName: matchedCard ? matchedCard.name : (cardName || 'Carte inconnue'),
@@ -88,7 +104,7 @@ Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans aucun tex
 
   } catch (error) {
     return res.status(500).json({ 
-      error: 'Erreur serveur : ' + error.message 
+      error: 'Erreur interne de la fonction : ' + error.message 
     });
   }
 }
