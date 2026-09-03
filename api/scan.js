@@ -17,35 +17,7 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Clé GEMINI_API_KEY manquante dans les variables Vercel.' });
     }
 
-    // 1. Récupération de la liste des modèles disponibles
-    const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${geminiApiKey}`;
-    const listResponse = await fetch(listUrl);
-    const listData = await listResponse.json();
-
-    if (!listResponse.ok) {
-      return res.status(listResponse.status).json({
-        error: `Impossible de lister les modèles Gemini (${listResponse.status}) : ` + (listData.error?.message || JSON.stringify(listData))
-      });
-    }
-
-    const availableModels = listData.models || [];
-
-    // Sélection ordonnée des modèles à tenter en cas de surcharge
-    const primaryModel = availableModels.find(m => m.name.includes('gemini-3.6-flash')) ||
-                         availableModels.find(m => m.name.includes('3.6'));
-    
-    const fallbackModels = availableModels.filter(m => 
-      m.supportedGenerationMethods?.includes('generateContent') && m.name !== primaryModel?.name
-    );
-
-    // File d'attente de test : Priorité au modèle choisi, puis replis
-    const candidates = [primaryModel, ...fallbackModels].filter(Boolean);
-
-    if (candidates.length === 0) {
-      return res.status(404).json({ error: 'Aucun modèle disponible sur cette clé API.' });
-    }
-
-    // 2. Nettoyage de l'image Base64
+    // 1. Préparation de l'image Base64
     const base64Data = image.split(',')[1] || image;
     const mimeType = image.split(';')[0].split(':')[1] || 'image/jpeg';
 
@@ -54,15 +26,16 @@ Identifie le nom de la carte et son numéro (ex: 4/102 ou 058/102).
 Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans aucun texte autour ni balises markdown :
 {"cardName": "Nom de la carte", "cardNumber": "numéro"}`;
 
+    // 2. Modèle unique imposé : gemini-3.6-flash
+    const modelName = 'gemini-3.6-flash';
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
+
     let geminiData = null;
-    let usedModelName = '';
-    let lastErrorDetails = '';
+    let lastError = '';
+    const maxRetries = 3;
 
-    // 3. Boucle de tentative avec gestion de la surcharge (503 / 429)
-    for (const modelObj of candidates) {
-      const modelName = modelObj.name.replace('models/', '');
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
-
+    // 3. Boucle de retry uniquement sur le 3.6 en cas de surcharge temporaire (503 / 429)
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
       const response = await fetch(geminiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -87,25 +60,25 @@ Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans aucun tex
 
       if (response.ok) {
         geminiData = data;
-        usedModelName = modelName;
-        break; // Succès !
+        break;
       }
 
-      // Si le modèle est surchargé (503) ou en limite de quota (429), on essaye le suivant
-      if (response.status === 503 || response.status === 429) {
-        lastErrorDetails = `Modèle ${modelName} surchargé (${response.status})`;
+      lastError = data.error?.message || JSON.stringify(data);
+
+      // Si le serveur est surchargé (503 ou 429), on attend 1.5s avant de réessayer
+      if ((response.status === 503 || response.status === 429) && attempt < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, 1500));
         continue;
       } else {
-        // Autre erreur fatale
         return res.status(response.status).json({
-          error: `Erreur Gemini avec ${modelName} (${response.status}) : ` + (data.error?.message || JSON.stringify(data))
+          error: `Erreur Gemini (${response.status}) : ${lastError}`
         });
       }
     }
 
     if (!geminiData) {
       return res.status(503).json({
-        error: `Tous les modèles Gemini sont actuellement surchargés. Veuillez réentreprendre l'analyse dans quelques instants. (${lastErrorDetails})`
+        error: `Le modèle ${modelName} est très sollicité. Réessaie dans un instant. (${lastError})`
       });
     }
 
@@ -150,7 +123,7 @@ Renvoie UNIQUEMENT un objet JSON valide suivant ce format strict, sans aucun tex
       setName: matchedCard ? `${matchedCard.set.name} (${matchedCard.number}/${matchedCard.set.printedTotal})` : 'Extension non trouvée',
       estimatedPrice: price || 0,
       imageUrl: matchedCard ? matchedCard.images.large : '',
-      modelUsed: usedModelName
+      modelUsed: modelName
     });
 
   } catch (error) {
