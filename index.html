@@ -19,7 +19,7 @@
       background-color: var(--bg);
       color: var(--text);
       margin: 0;
-      padding: 20px;
+      padding: 15px;
       display: flex;
       justify-content: center;
     }
@@ -71,7 +71,7 @@
     #video-container {
       position: relative;
       width: 100%;
-      max-width: 400px;
+      max-width: 350px;
       margin: 0 auto 20px;
       display: none;
       border-radius: 8px;
@@ -100,7 +100,7 @@
       color: #666;
     }
 
-    /* Grille de sélection */
+    /* Grille de choix */
     #selection-zone {
       display: none;
       margin-top: 20px;
@@ -108,13 +108,13 @@
 
     #selection-zone h3 {
       font-size: 1.1em;
-      margin-bottom: 10px;
+      margin-bottom: 15px;
       text-align: center;
     }
 
     .cards-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
       gap: 12px;
     }
 
@@ -149,7 +149,7 @@
     .card-item .price-tag {
       color: var(--success);
       font-weight: bold;
-      font-size: 0.9em;
+      font-size: 0.85em;
       margin: 0;
     }
 
@@ -165,13 +165,13 @@
     }
 
     #result-zone img {
-      max-width: 200px;
+      max-width: 180px;
       border-radius: 6px;
       margin-bottom: 10px;
     }
 
     #res-price {
-      font-size: 1.4em;
+      font-size: 1.3em;
       color: var(--success);
       font-weight: bold;
       margin: 10px 0 0;
@@ -184,32 +184,33 @@
     <h1>Scanner PokéCard</h1>
 
     <div class="controls">
-      <button id="start-cam-btn">Ouvrir la caméra</button>
-      <label class="btn" for="file-input">Importer une photo</label>
+      <button id="start-cam-btn">Caméra</button>
+      <label class="btn" for="file-input">Importer Photo</label>
       <input type="file" id="file-input" accept="image/*">
     </div>
 
     <div id="video-container">
       <video id="video" autoplay playsinline></video>
-      <button id="capture-btn">Prendre la photo</button>
+      <button id="capture-btn">Capturer</button>
     </div>
 
     <div id="loader" class="loader">
-      Analyse en cours par l'IA...
+      Analyse de la carte en cours...
     </div>
 
-    <!-- Grille des cartes candidates -->
+    <!-- Zone de sélection -->
     <div id="selection-zone">
-      <h3>Choisissez votre carte dans la liste :</h3>
+      <h3 id="detected-info">Sélectionnez la carte correspondante :</h3>
       <div id="cards-grid" class="cards-grid"></div>
     </div>
 
-    <!-- Carte sélectionnée -->
+    <!-- Carte finale sélectionnée -->
     <div id="result-zone">
-      <img id="res-img" src="" alt="Carte sélectionnée">
+      <img id="res-img" src="" alt="Carte">
       <h2 id="res-title" style="margin: 5px 0;"></h2>
       <p id="res-set" style="margin: 5px 0; color: #666;"></p>
       <p id="res-price"></p>
+      <button onclick="resetView()" style="margin-top: 15px; background: #666;">Scanner une autre carte</button>
     </div>
   </div>
 
@@ -223,10 +224,10 @@
     const selectionZone = document.getElementById('selection-zone');
     const cardsGrid = document.getElementById('cards-grid');
     const resultZone = document.getElementById('result-zone');
+    const detectedInfo = document.getElementById('detected-info');
 
     let stream = null;
 
-    // Active la caméra
     startCamBtn.onclick = async () => {
       try {
         stream = await navigator.mediaDevices.getUserMedia({
@@ -239,7 +240,6 @@
       }
     };
 
-    // Capture depuis la caméra
     captureBtn.onclick = () => {
       const canvas = document.createElement('canvas');
       canvas.width = video.videoWidth;
@@ -247,30 +247,23 @@
       const ctx = canvas.getContext('2d');
       ctx.drawImage(video, 0, 0);
 
-      // Fermeture du flux caméra
       if (stream) {
         stream.getTracks().forEach(track => track.stop());
       }
       videoContainer.style.display = 'none';
 
-      // Compression / Envoi
-      const base64Image = canvas.toDataURL('image/jpeg', 0.8);
-      sendImageToScan(base64Image);
+      sendImageToScan(canvas.toDataURL('image/jpeg', 0.8));
     };
 
-    // Import de fichier image
     fileInput.onchange = (e) => {
       const file = e.target.files[0];
       if (!file) return;
 
       const reader = new FileReader();
-      reader.onload = (event) => {
-        sendImageToScan(event.target.result);
-      };
+      reader.onload = (event) => sendImageToScan(event.target.result);
       reader.readAsDataURL(file);
     };
 
-    // Envoi à l'API serverless /api/scan
     async function sendImageToScan(base64Image) {
       selectionZone.style.display = 'none';
       resultZone.style.display = 'none';
@@ -292,18 +285,14 @@
         }
 
         if (!data.candidates || data.candidates.length === 0) {
-          alert("Aucune carte Pokémon n'a été identifiée.");
+          alert(`Aucune carte trouvée pour "${data.detectedName || 'Inconnu'}" (#${data.detectedNum || '?'}). Essayez une photo plus nette.`);
           return;
         }
 
-        // Si une seule carte correspond
-        if (data.candidates.length === 1) {
-          displayFinalCard(data.candidates[0]);
-          return;
-        }
-
-        // Si plusieurs cartes, affichage de la grille de choix
+        // Toujours afficher la grille de sélection
         cardsGrid.innerHTML = '';
+        detectedInfo.textContent = `Pokémon identifié : "${data.detectedName}" — Choisissez l'extension :`;
+
         data.candidates.forEach(card => {
           const cardEl = document.createElement('div');
           cardEl.className = 'card-item';
@@ -320,11 +309,10 @@
 
       } catch (err) {
         loader.style.display = 'none';
-        alert('Erreur de connexion au serveur : ' + err.message);
+        alert('Erreur serveur : ' + err.message);
       }
     }
 
-    // Affichage de la carte choisie
     function displayFinalCard(card) {
       selectionZone.style.display = 'none';
 
@@ -336,6 +324,11 @@
         : 'Cote indisponible';
 
       resultZone.style.display = 'block';
+    }
+
+    function resetView() {
+      resultZone.style.display = 'none';
+      selectionZone.style.display = 'none';
     }
   </script>
 </body>
