@@ -13,177 +13,135 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Aucune image transmise.' });
     }
 
-    // 1. CLÉS API GEMINI
     const key1 = process.env.GEMINI_API_KEY_1;
     const key2 = process.env.GEMINI_API_KEY_2;
     const availableKeys = [key1, key2].filter(Boolean);
 
     if (availableKeys.length === 0) {
-      return res.status(500).json({ error: 'Aucune clé GEMINI configurée.' });
+      return res.status(500).json({ error: 'Aucune clé GEMINI configurée dans Vercel.' });
     }
 
-    const keysToTry = availableKeys.sort(() => Math.random() - 0.5);
-
-    // 2. MODÈLES
-    const modelsToTry = [
-      'gemini-flash-latest',
-      'gemini-2.5-flash',
-      'gemini-3.5-flash'
-    ];
-
+    const apiKey = availableKeys[Math.floor(Math.random() * availableKeys.length)];
     const base64 = image.split(',')[1] || image;
     const mimeType = image.match(/data:(.*?);/)?.[1] || 'image/jpeg';
 
-    const prompt = `Analyse cette image de carte Pokémon. Renvoie UNIQUEMENT un objet JSON valide sans Markdown :
-{"fr": "NomFrançais", "en": "NomAnglais", "num": "Numero"}`;
+    // Demande précise à Gemini pour obtenir le nom exact et le numéro de série
+    const prompt = `Tu es un expert Pokémon TCG. Identifie la carte sur cette photo.
+    Renvoie EXCLUSIVEMENT un objet JSON valide (sans markdown) avec :
+    - "fr": Le nom de la carte en français.
+    - "en": Le nom exact du Pokémon en anglais (ex: "Rattata").
+    - "num": Le numéro exact de la carte sous le format simple (ex: "19" ou "019" ou "SWSH039"). Doit exclure le total.
+    - "set_hint": Le nom de l'extension si visible (ex: "Base Set", "Scarlet & Violet", etc.), sinon "".`;
 
-    let rawResultText = null;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
-    // 3. APPEL IA
-    keyLoop: for (const apiKey of keysToTry) {
-      for (const model of modelsToTry) {
-        try {
-          const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
-          const geminiRes = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{
-                parts: [
-                  { text: prompt },
-                  { inline_data: { mime_type: mimeType, data: base64 } }
-                ]
-              }],
-              generationConfig: {
-                response_mime_type: 'application/json',
-                temperature: 0.1,
-                thinkingConfig: { thinkingBudget: 0 }
-              }
-            }),
-            signal: AbortSignal.timeout(15000)
-          });
-
-          if (geminiRes.ok) {
-            const geminiData = await geminiRes.json();
-            rawResultText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (rawResultText) break keyLoop;
-          }
-        } catch (err) {
-          // Continue au modèle/clé suivant
+    const geminiRes = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { text: prompt },
+            { inline_data: { mime_type: mimeType, data: base64 } }
+          ]
+        }],
+        generationConfig: {
+          response_mime_type: 'application/json',
+          temperature: 0.1
         }
-      }
+      }),
+      signal: AbortSignal.timeout(15000)
+    });
+
+    if (!geminiRes.ok) {
+      const errText = await geminiRes.text();
+      return res.status(502).json({ error: `Erreur Gemini : ${errText.slice(0, 100)}` });
     }
 
-    if (!rawResultText) {
-      return res.status(502).json({ error: 'L\'IA n\'a pas pu analyser l\'image.' });
+    const geminiData = await geminiRes.json();
+    const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (!rawText) {
+      return res.status(500).json({ error: 'Aucune donnée renvoyée par l\'IA.' });
     }
 
-    // 4. NETTOYAGE ET PARSING
-    let cardData = {};
-    try {
-      const cleanJson = rawResultText.replace(/```json/g, '').replace(/```/g, '').trim();
-      cardData = JSON.parse(cleanJson);
-    } catch (e) {
-      return res.status(500).json({ error: 'Erreur de décodage JSON' });
-    }
-
+    const cardData = JSON.parse(rawText.replace(/```json/g, '').replace(/```/g, '').trim());
     const nomEn = (cardData.en || '').trim();
     const nomFr = (cardData.fr || nomEn).trim();
-    const numRaw = (cardData.num || '').split('/')[0].trim();
-    const numClean = numRaw.replace(/^0+/, '').trim();
+    const num = (cardData.num || '').split('/')[0].replace(/^0+/, '').trim();
 
     if (!nomEn) {
-      return res.status(400).json({ error: 'Nom de carte illisible sur l\'image.' });
+      return res.status(400).json({ error: 'Nom de carte illisible. Reprenez une photo plus nette.' });
     }
 
-    // Nettoyage strict pour la requête TCG (lettres et chiffres uniquement)
-    const cleanSearchName = nomEn.replace(/[^a-zA-Z0-9]/g, '');
+    // Interdiction stricte de chercher si ce n'est pas Dracaufeu
+    const isCharizard = nomEn.toLowerCase().includes('charizard') || nomFr.toLowerCase().includes('dracaufeu');
 
-    // 5. RECHERCHE CIBLÉE TCG (SYNTAXE SIMPLE SANS GUILLEMETS)
-    let cardsFound = [];
-    let queries = [];
+    // Requête TCG sécurisée
+    let query = `name:"${nomEn}"`;
+    if (num) {
+      query += ` number:"${num}"`;
+    }
 
-    if (numRaw) queries.push(`name:${cleanSearchName} number:${numRaw}`);
-    if (numClean && numClean !== numRaw) queries.push(`name:${cleanSearchName} number:${numClean}`);
-    queries.push(`name:${cleanSearchName}`);
+    const tcgRes = await fetch(
+      `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(query)}&pageSize=10`,
+      { signal: AbortSignal.timeout(6000) }
+    );
 
-    for (const q of queries) {
-      try {
-        const tcgRes = await fetch(
-          `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(q)}&pageSize=20`,
-          { signal: AbortSignal.timeout(6000) }
-        );
+    let candidates = [];
 
-        if (tcgRes.ok) {
-          const tcgData = await tcgRes.json();
-          const results = tcgData.data || [];
+    if (tcgRes.ok) {
+      const tcgData = await tcgRes.json();
+      const rawCards = tcgData.data || [];
 
-          // VERROU SÉCURITÉ ANTI-DRACAUFEU :
-          // Si le Pokémon recherché n'est pas Charizard/Dracaufeu,
-          // on filtre TOUTE carte qui contiendrait Charizard/Dracaufeu ou qui ne contient pas la recherche.
-          const isSearchingCharizard = cleanSearchName.toLowerCase().includes('charizard') || nomFr.toLowerCase().includes('dracaufeu');
+      // FILTRE DE SÉCURITÉ : on écarte TOUTE carte qui ne contient pas le nom détecté
+      const validCards = rawCards.filter(c => {
+        const cName = c.name.toLowerCase();
+        const searchName = nomEn.toLowerCase();
+        
+        // Si ce n'est pas un Dracaufeu scanné, rejeter Charizard
+        if (!isCharizard && cName.includes('charizard')) return false;
 
-          const filtered = results.filter(c => {
-            const cardNameLower = c.name.toLowerCase();
-            const searchLower = cleanSearchName.toLowerCase();
+        return cName.includes(searchName);
+      });
 
-            // Doit contenir le nom recherché
-            const matchesName = cardNameLower.includes(searchLower);
-
-            if (!isSearchingCharizard) {
-              // Si on ne cherche PAS Dracaufeu, on rejette systématiquement Charizard
-              return matchesName && !cardNameLower.includes('charizard');
-            }
-            return matchesName;
-          });
-
-          if (filtered.length > 0) {
-            cardsFound = filtered;
-            break;
-          }
+      candidates = validCards.slice(0, 6).map(c => {
+        let price = 0;
+        if (c.cardmarket?.prices) {
+          const cm = c.cardmarket.prices;
+          price = cm.trendPrice || cm.avg1 || cm.avg7 || cm.averageSellPrice || cm.lowPrice || 0;
+        } else if (c.tcgplayer?.prices) {
+          const tp = c.tcgplayer.prices;
+          const variant = tp.normal || tp.holofoil || tp.reverseHolofoil || tp.unlimited || {};
+          const usdPrice = variant.market || variant.mid || 0;
+          price = usdPrice * 0.92;
         }
-      } catch (e) {
-        console.warn('Erreur TCG:', e.message);
-      }
-    }
 
-    if (cardsFound.length === 0) {
-      return res.status(404).json({
-        error: `Aucune carte trouvée pour "${nomFr}" (${nomEn}) #${numRaw || 'inconnu'}.`
+        return {
+          id: c.id,
+          cardName: `${nomFr} (${c.name})`,
+          setName: `${c.set.name} — ${c.number}/${c.set.printedTotal}`,
+          number: c.number,
+          price: Number(price.toFixed(2)),
+          imageUrl: c.images?.large || c.images?.small
+        };
       });
     }
 
-    // 6. MISE EN FORME
-    const candidates = cardsFound.slice(0, 8).map(c => {
-      let price = 0;
-      if (c.cardmarket?.prices) {
-        const cm = c.cardmarket.prices;
-        price = cm.trendPrice || cm.avg1 || cm.averageSellPrice || cm.lowPrice || 0;
-      } else if (c.tcgplayer?.prices) {
-        const tp = c.tcgplayer.prices;
-        const variant = tp.normal || tp.holofoil || tp.reverseHolofoil || tp.unlimited || {};
-        const usdPrice = variant.market || variant.mid || 0;
-        price = usdPrice * 0.92;
-      }
-
-      return {
-        id: c.id,
-        cardName: `${nomFr} (${c.name})`,
-        setName: `${c.set.name} — ${c.number}/${c.set.printedTotal}`,
-        number: c.number,
-        price: Number(price.toFixed(2)),
-        imageUrl: c.images?.large || c.images?.small
-      };
-    });
+    // Si la recherche TCG n'a rien renvoyé ou a été filtrée
+    if (candidates.length === 0) {
+      return res.status(404).json({
+        error: `L'IA a détecté "${nomFr}" (N°${num || '?'}), mais aucune carte correspondante n'a été trouvée sur l'API.`
+      });
+    }
 
     return res.status(200).json({
       detectedName: nomFr,
-      detectedNum: numRaw || numClean,
+      detectedNum: num,
       candidates: candidates
     });
 
-  } catch (globalError) {
-    return res.status(500).json({ error: 'Erreur serveur : ' + globalError.message });
+  } catch (err) {
+    return res.status(500).json({ error: 'Erreur serveur : ' + err.message });
   }
 }
