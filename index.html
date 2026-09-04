@@ -360,7 +360,7 @@
         loader.style.display = 'none';
 
         if (data.error) {
-          alert('Erreur : ' + data.error);
+          alert('Erreur : ' + data.error + (data.detail ? '\n(' + data.detail + ')' : ''));
           return;
         }
 
