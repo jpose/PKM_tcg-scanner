@@ -262,15 +262,19 @@ async function searchTcgdexCandidates(nameFr, nameEn, numRaw, setNameHint) {
   // le front bascule alors sur le mode "carte non trouvée" (ajout via la photo).
   const relevant = scored.filter(s => s.score > 0);
 
-  // Trace de debug : si tout a été écarté alors qu'on avait des candidats
-  // bruts, on garde le détail pour comprendre pourquoi (visible dans la
-  // réponse JSON et dans les logs serveur).
-  let debugNote = null;
+  // Trace de debug systématique (toujours calculée pendant la mise au point) :
+  // liste des meilleurs candidats bruts avec leur score et leur localId TEL
+  // QUE STOCKÉ PAR TCGDEX. Utile notamment quand plusieurs versions d'une même
+  // carte existent dans une extension (standard vs secrète/full art) : ça
+  // montre le format exact du numéro attendu par l'API pour chacune.
+  const debugNote = scored.slice(0, 8).map(s =>
+    `${s.card.cardName} [id:${s.card.id}] localId:"${s.card.number}" set:"${s.card.setName}" score:${s.score}`
+  ).join(' | ') || null;
+
   if (relevant.length === 0 && scored.length > 0) {
-    debugNote = scored.slice(0, 6).map(s =>
-      `${s.card.cardName} (id:${s.card.id}, num:${s.card.number}, set:${s.card.setName}, score:${s.score})`
-    ).join(' | ');
     console.error('[scan.js] Candidats trouvés mais aucun retenu (local=' + local + ', total=' + total + ', setHint="' + setNameHint + '") -> ' + debugNote);
+  } else {
+    console.log('[scan.js] Recherche (local=' + local + ', total=' + total + ', setHint="' + setNameHint + '") -> ' + debugNote);
   }
 
   return {
