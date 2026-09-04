@@ -236,4 +236,4 @@ async function searchTcgdexCandidates(nameFr, nameEn, numRaw, setNameHint) {
     const { setTotal, ...publicFields } = card;
     return publicFields;
   });
-    }
+}
