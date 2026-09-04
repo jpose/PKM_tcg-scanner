@@ -227,6 +227,34 @@
       margin: 0;
       font-weight: bold;
     }
+
+    .variant-btn {
+      background: #eee;
+      color: #333;
+      border: 2px solid #ddd;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 0.8em;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    .variant-btn.active {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: white;
+    }
+
+    .variant-tag {
+      display: inline-block;
+      background: #eceff1;
+      color: #455a64;
+      font-size: 0.65em;
+      font-weight: bold;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-bottom: 3px;
+    }
   </style>
 </head>
 <body>
@@ -267,6 +295,7 @@
         <img id="res-img" src="" alt="Carte">
         <h2 id="res-title" style="margin: 5px 0;"></h2>
         <p id="res-set" style="margin: 5px 0; color: #666;"></p>
+        <div id="variant-selector" style="display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin: 10px 0;"></div>
         <p id="res-price"></p>
         <button id="add-collection-btn" style="background: var(--success);">Ajouter à ma collection</button>
         <button onclick="resetScanView()" style="background: #666; margin-top: 8px;">Scanner une autre carte</button>
@@ -285,6 +314,31 @@
 
   <script>
     let currentSelectedCard = null;
+    let currentVariant = 'normal';
+
+    // --- GESTION DES VARIANTES (Normale / Holo / Reverse Holo / 1ère édition) ---
+    const VARIANT_LABELS = {
+      normal: 'Normale',
+      holo: 'Holo',
+      reverseHolo: 'Reverse Holo',
+      firstEdition: '1ère Édition'
+    };
+
+    // "1ère Édition" peut être cotée holo ou non selon les données disponibles :
+    // on prend ce qu'on a.
+    function getVariantPrice(card, variant) {
+      if (!card || !card.prices) return null;
+      if (variant === 'firstEdition') {
+        return card.prices.firstEdition || card.prices.firstEditionHolo || null;
+      }
+      return card.prices[variant] || null;
+    }
+
+    function formatPrice(p) {
+      if (!p || typeof p.amount !== 'number') return 'Non cotée';
+      const symbol = p.currency === 'USD' ? '$' : '€';
+      return `${p.amount} ${symbol} (${p.source})`;
+    }
 
     // --- GESTION DES ONGLETS ---
     function switchTab(tabName) {
@@ -380,6 +434,7 @@
             setName: `${detectedSet} — #${data.detectedNum || '?'}`,
             number: data.detectedNum || '?',
             price: 0,
+            prices: { normal: null, holo: null, reverseHolo: null, firstEdition: null, firstEditionHolo: null },
             imageUrl: base64Image
           }];
         }
@@ -395,7 +450,7 @@
           cardEl.innerHTML = `
             <img src="${card.imageUrl}" alt="Carte">
             <p class="set-title">${card.setName}</p>
-            <p class="price-tag">${card.price > 0 ? card.price + ' €' : 'Non cotée'}</p>
+            <p class="price-tag">${formatPrice(getVariantPrice(card, 'normal'))}</p>
           `;
           cardEl.onclick = () => displayFinalCard(card);
           selectionGrid.appendChild(cardEl);
@@ -411,16 +466,44 @@
 
     function displayFinalCard(card) {
       currentSelectedCard = card;
+      currentVariant = 'normal';
       selectionZone.style.display = 'none';
 
       document.getElementById('res-img').src = card.imageUrl;
       document.getElementById('res-title').textContent = card.cardName;
       document.getElementById('res-set').textContent = card.setName;
-      document.getElementById('res-price').textContent = card.price > 0 
-        ? `Cote estimée : ${card.price} €` 
-        : 'Cote indisponible';
+
+      renderVariantSelector(card);
+      updateResultPrice();
 
       resultZone.style.display = 'block';
+    }
+
+    // Affiche un bouton par variante (Normale/Holo/Reverse Holo/1ère Édition).
+    // On les propose toutes même sans cote disponible, pour permettre de
+    // marquer quelle version physique de la carte est possédée.
+    function renderVariantSelector(card) {
+      const container = document.getElementById('variant-selector');
+      container.innerHTML = '';
+
+      Object.keys(VARIANT_LABELS).forEach(variant => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'variant-btn' + (variant === currentVariant ? ' active' : '');
+        btn.textContent = VARIANT_LABELS[variant];
+        btn.onclick = () => {
+          currentVariant = variant;
+          renderVariantSelector(card);
+          updateResultPrice();
+        };
+        container.appendChild(btn);
+      });
+    }
+
+    function updateResultPrice() {
+      const priceObj = getVariantPrice(currentSelectedCard, currentVariant);
+      document.getElementById('res-price').textContent =
+        `Cote (${VARIANT_LABELS[currentVariant]}) : ${formatPrice(priceObj)}`;
     }
 
     function resetScanView() {
@@ -428,6 +511,7 @@
       selectionZone.style.display = 'none';
       fileInput.value = '';
       currentSelectedCard = null;
+      currentVariant = 'normal';
     }
 
     // --- GESTION DU STORAGE DE LA COLLECTION ---
@@ -445,6 +529,9 @@
       const collection = getCollection();
       collection.push({
         ...currentSelectedCard,
+        variant: currentVariant,
+        variantLabel: VARIANT_LABELS[currentVariant],
+        variantPrice: getVariantPrice(currentSelectedCard, currentVariant),
         addedAt: Date.now()
       });
 
@@ -461,6 +548,18 @@
       renderCollection();
     }
 
+    // Pour une carte de la collection, retrouve son prix "au moment de l'ajout" :
+    // les nouvelles entrées ont un `variantPrice` explicite ; les anciennes
+    // (ajoutées avant l'introduction des variantes) retombent sur les champs
+    // `price`/`priceCurrency`/`priceSource` d'origine.
+    function getStoredPrice(card) {
+      if (card.variantPrice) return card.variantPrice;
+      if (typeof card.price === 'number' && card.price > 0) {
+        return { amount: card.price, currency: card.priceCurrency || 'EUR', source: card.priceSource || 'Cardmarket' };
+      }
+      return null;
+    }
+
     function renderCollection() {
       const collection = getCollection();
       const colGrid = document.getElementById('collection-grid');
@@ -469,7 +568,6 @@
 
       colGrid.innerHTML = '';
 
-      let totalVal = 0;
       countEl.textContent = `${collection.length} carte${collection.length > 1 ? 's' : ''}`;
 
       if (collection.length === 0) {
@@ -478,8 +576,20 @@
         return;
       }
 
+      // Cardmarket étant la source principale, le total affiché est en EUR ;
+      // les cartes cotées uniquement en USD (repli TCGPlayer) sont comptées
+      // à part pour ne pas fausser le total par un mélange de devises.
+      let totalEur = 0;
+      let usdCount = 0;
+
       collection.forEach((card, idx) => {
-        totalVal += Number(card.price) || 0;
+        const storedPrice = getStoredPrice(card);
+        if (storedPrice) {
+          if (storedPrice.currency === 'EUR') totalEur += storedPrice.amount;
+          else usdCount++;
+        }
+
+        const variantLabel = card.variantLabel || 'Normale';
 
         const cardEl = document.createElement('div');
         cardEl.className = 'card-item';
@@ -487,13 +597,15 @@
           <img src="${card.imageUrl}" alt="Carte">
           <p class="card-title">${card.cardName}</p>
           <p class="set-title">${card.setName}</p>
-          <p class="price-tag">${card.price > 0 ? card.price + ' €' : 'Non cotée'}</p>
+          <span class="variant-tag">${variantLabel}</span>
+          <p class="price-tag">${formatPrice(storedPrice)}</p>
           <button class="delete-btn" onclick="removeFromCollection(${idx})">Supprimer</button>
         `;
         colGrid.appendChild(cardEl);
       });
 
-      valEl.textContent = `Valeur : ${totalVal.toFixed(2)} €`;
+      valEl.textContent = `Valeur : ${totalEur.toFixed(2)} €`
+        + (usdCount > 0 ? ` (+ ${usdCount} carte${usdCount > 1 ? 's' : ''} cotée${usdCount > 1 ? 's' : ''} en $ non incluse${usdCount > 1 ? 's' : ''})` : '');
     }
   </script>
 </body>
