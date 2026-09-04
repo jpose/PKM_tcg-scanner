@@ -246,7 +246,13 @@ async function searchTcgdexCandidates(nameFr, nameEn, numRaw, setNameHint) {
 
   scored.sort((a, b) => b.score - a.score);
 
-  return scored.slice(0, 6).map(({ card }) => {
+  // On ne garde que les candidats avec un vrai signal de correspondance
+  // (numéro exact, total de cartes identique, ou nom d'extension proche).
+  // Sans ça, mieux vaut ne rien proposer que d'afficher des cartes au hasard :
+  // le front bascule alors sur le mode "carte non trouvée" (ajout via la photo).
+  const relevant = scored.filter(s => s.score > 0);
+
+  return relevant.slice(0, 6).map(({ card }) => {
     const { setTotal, ...publicFields } = card;
     return publicFields;
   });
