@@ -247,26 +247,32 @@ async function searchTcgdexCandidates(nameFr, nameEn, numRaw, setNameHint) {
   const setHint = normalizeText(setNameHint);
   const totalAsNumber = total ? parseInt(total, 10) : null;
   const scored = detailed.map(c => {
+    const localMatch = localIdsMatch(c.number, local);
+    const totalMatch = !!(totalAsNumber && c.setTotal && parseInt(c.setTotal, 10) === totalAsNumber);
+    const nameMatch = !!(setHint && normalizeText(c.setName).includes(setHint));
     let score = 0;
-    if (localIdsMatch(c.number, local)) score += 3;
-    if (totalAsNumber && c.setTotal && parseInt(c.setTotal, 10) === totalAsNumber) score += 2;
-    if (setHint && normalizeText(c.setName).includes(setHint)) score += 2;
-    return { card: c, score };
+    if (localMatch) score += 3;
+    if (totalMatch) score += 2;
+    if (nameMatch) score += 2;
+    return { card: c, score, localMatch, totalMatch, nameMatch };
   });
 
   scored.sort((a, b) => b.score - a.score);
 
-  // On ne garde que les candidats avec un vrai signal de correspondance
-  // (numéro exact, total de cartes identique, ou nom d'extension proche).
-  // Sans ça, mieux vaut ne rien proposer que d'afficher des cartes au hasard :
-  // le front bascule alors sur le mode "carte non trouvée" (ajout via la photo).
-  const relevant = scored.filter(s => s.score > 0);
+  // Le numéro imprimé sur la carte est le SEUL signal totalement fiable (il est
+  // lu directement sur la carte, contrairement au nom d'extension qui est
+  // déduit par l'IA et peut coïncider avec une autre édition du même Pokémon).
+  // On exige donc explicitement sa correspondance quand un numéro a pu être
+  // détecté ; le nom d'extension seul ne suffit plus à qualifier un candidat
+  // (cas vécu : "Rattatac" n°099 absent de TCGdex, mais le n°061 de la même
+  // extension remontait à tort juste parce que le nom du set correspondait).
+  const relevant = local
+    ? scored.filter(s => s.localMatch)
+    : scored.filter(s => s.totalMatch || s.nameMatch);
 
   // Trace de debug systématique (toujours calculée pendant la mise au point) :
   // liste des meilleurs candidats bruts avec leur score et leur localId TEL
-  // QUE STOCKÉ PAR TCGDEX. Utile notamment quand plusieurs versions d'une même
-  // carte existent dans une extension (standard vs secrète/full art) : ça
-  // montre le format exact du numéro attendu par l'API pour chacune.
+  // QUE STOCKÉ PAR TCGDEX.
   const debugNote = scored.slice(0, 8).map(s =>
     `${s.card.cardName} [id:${s.card.id}] localId:"${s.card.number}" set:"${s.card.setName}" score:${s.score}`
   ).join(' | ') || null;
