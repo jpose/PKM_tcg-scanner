@@ -25,14 +25,13 @@ export default async function handler(req, res) {
     const keysToTry = availableKeys.sort(() => Math.random() - 0.5);
 
     // 2. MODÈLES GEMINI
-    // NB: "gemini-3.5-flash" n'existe pas dans l'offre Gemini actuelle, il a été
-    // retiré. Vérifiez la liste des modèles disponibles sur
-    // https://ai.google.dev/gemini-api/docs/models avant de déployer, ces noms
-    // changent régulièrement.
+    // "gemini-2.0-flash" est arrêté depuis le 01/06/2026 : il ne répondra plus.
+    // Vérifiez la liste à jour sur https://ai.google.dev/gemini-api/docs/models
+    // avant de déployer, ces identifiants changent souvent.
     const modelsToTry = [
       'gemini-flash-latest',
       'gemini-2.5-flash',
-      'gemini-2.0-flash'
+      'gemini-3.1-flash-lite'
     ];
 
     const base64 = image.split(',')[1] || image;
@@ -48,6 +47,7 @@ Règles importantes :
 - Si tu n'es pas certain du nom exact de l'extension, laisse "set_name" vide ("") plutôt que d'inventer une valeur approximative : une fausse extension fait échouer la recherche de la carte.`;
 
     let rawResultText = null;
+    let lastFailureReason = null;
 
     // 3. APPEL IA
     keyLoop: for (const apiKey of keysToTry) {
@@ -78,15 +78,29 @@ Règles importantes :
             const geminiData = await geminiRes.json();
             rawResultText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
             if (rawResultText) break keyLoop;
+            // Réponse HTTP 200 mais pas de texte exploitable (ex: image bloquée
+            // par les filtres de sécurité de Gemini -> finishReason "SAFETY").
+            const finishReason = geminiData.candidates?.[0]?.finishReason;
+            lastFailureReason = `Réponse vide du modèle ${model} (finishReason: ${finishReason || 'inconnu'})`;
+            console.error('[scan.js] ' + lastFailureReason, JSON.stringify(geminiData).slice(0, 500));
+          } else {
+            const errBody = await geminiRes.text().catch(() => '');
+            lastFailureReason = `HTTP ${geminiRes.status} sur le modèle ${model}`;
+            console.error('[scan.js] ' + lastFailureReason, errBody.slice(0, 500));
           }
         } catch (err) {
-          // Continue silencieusement, on tente la combinaison clé/modèle suivante
+          lastFailureReason = `Exception sur le modèle ${model} : ${err.message}`;
+          console.error('[scan.js] ' + lastFailureReason);
         }
       }
     }
 
     if (!rawResultText) {
-      return res.status(502).json({ error: 'L\'IA n\'a pas pu analyser l\'image.' });
+      console.error('[scan.js] Échec total. Dernière raison : ' + lastFailureReason);
+      return res.status(502).json({
+        error: 'L\'IA n\'a pas pu analyser l\'image.',
+        detail: lastFailureReason || undefined
+      });
     }
 
     // 4. PARSING RÉPONSE IA
