@@ -168,6 +168,53 @@ function normalizeText(s) {
   return (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
 }
 
+function round2(n) {
+  return Math.round(n * 100) / 100;
+}
+
+const EMPTY_PRICES = { normal: null, holo: null, reverseHolo: null, firstEdition: null, firstEditionHolo: null };
+
+// Choisit un prix pour une variante donnée : Cardmarket (EUR) est TOUJOURS
+// essayé en premier (source principale demandée), TCGPlayer (USD) sert de
+// repli quand Cardmarket n'a pas de valeur pour cette variante précise.
+function pickPrice(cardmarketValue, tcgplayerValue) {
+  if (typeof cardmarketValue === 'number' && !isNaN(cardmarketValue)) {
+    return { amount: round2(cardmarketValue), currency: 'EUR', source: 'Cardmarket' };
+  }
+  if (typeof tcgplayerValue === 'number' && !isNaN(tcgplayerValue)) {
+    return { amount: round2(tcgplayerValue), currency: 'USD', source: 'TCGplayer' };
+  }
+  return null;
+}
+
+// Construit la cote par variante (normal / holo / reverse holo / 1ère édition)
+// à partir de l'objet "pricing" renvoyé par TCGdex, qui embarque déjà les
+// deux sources (Cardmarket EUR + TCGPlayer USD) dans une seule requête.
+//
+// Limite connue de Cardmarket (documentée par TCGdex lui-même, cf. FAQ) :
+// il ne distingue que "normal" vs "holo" globalement, pas le reverse holo
+// spécifiquement, ni le 1ère édition. Pour ces variantes plus précises, on
+// se repose donc directement sur TCGPlayer, seule source à les isoler.
+function buildVariantPrices(pricing) {
+  if (!pricing) return EMPTY_PRICES;
+  const cm = pricing.cardmarket || {};
+  const tp = pricing.tcgplayer || {};
+
+  const tpNormal = tp.normal?.marketPrice ?? tp.normal?.midPrice;
+  const tpHolo = tp.holofoil?.marketPrice ?? tp.holofoil?.midPrice;
+  const tpReverseHolo = tp['reverse-holofoil']?.marketPrice ?? tp['reverse-holofoil']?.midPrice;
+  const tp1stEdition = tp['1st-edition']?.marketPrice ?? tp['1st-edition']?.midPrice;
+  const tp1stEditionHolo = tp['1st-edition-holofoil']?.marketPrice ?? tp['1st-edition-holofoil']?.midPrice;
+
+  return {
+    normal: pickPrice(cm.avg ?? cm.trend, tpNormal),
+    holo: pickPrice(cm['avg-holo'] ?? cm['trend-holo'], tpHolo),
+    reverseHolo: pickPrice(null, tpReverseHolo),
+    firstEdition: pickPrice(null, tp1stEdition),
+    firstEditionHolo: pickPrice(null, tp1stEditionHolo)
+  };
+}
+
 // --- Recherche de cartes correspondantes sur TCGdex (API publique, sans clé) ---
 // Stratégie : le numéro imprimé sur la carte est bien plus fiable que le nom de
 // l'extension deviné par l'IA. On filtre donc d'abord par nom + numéro exact
@@ -215,14 +262,18 @@ async function searchTcgdexCandidates(nameFr, nameEn, numRaw, setNameHint) {
         const r = await fetch(`https://api.tcgdex.net/v2/fr/cards/${brief.id}`, { signal: controller });
         if (!r.ok) throw new Error('detail fetch failed');
         const full = await r.json();
-        const price = full.pricing?.cardmarket?.avg ?? full.pricing?.cardmarket?.trend ?? 0;
+        const prices = buildVariantPrices(full.pricing);
         return {
           id: full.id,
           cardName: full.name,
           setName: full.set?.name || 'Extension inconnue',
           setTotal: full.set?.cardCount?.official || full.set?.cardCount?.total || null,
           number: full.localId,
-          price: Number(price) || 0,
+          prices,
+          // Valeur par défaut (variante "normale") pour un affichage simple dans la grille.
+          price: prices.normal?.amount ?? 0,
+          priceCurrency: prices.normal?.currency ?? 'EUR',
+          priceSource: prices.normal?.source ?? null,
           imageUrl: full.image ? `${full.image}/high.webp` : ''
         };
       } catch (err) {
@@ -233,7 +284,10 @@ async function searchTcgdexCandidates(nameFr, nameEn, numRaw, setNameHint) {
           setName: 'Extension inconnue',
           setTotal: null,
           number: brief.localId,
+          prices: EMPTY_PRICES,
           price: 0,
+          priceCurrency: null,
+          priceSource: null,
           imageUrl: brief.image ? `${brief.image}/high.webp` : ''
         };
       }
@@ -290,4 +344,4 @@ async function searchTcgdexCandidates(nameFr, nameEn, numRaw, setNameHint) {
     }),
     debugNote
   };
-}
+                                                          }
