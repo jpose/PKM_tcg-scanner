@@ -121,19 +121,24 @@ Règles importantes :
     // Doc: https://tcgdex.dev/rest/filtering-sorting-pagination
     // "name=<valeur>" fait une recherche "contient" (non sensible à la casse).
     let candidates = [];
+    let searchDebugNote = null;
     try {
-      candidates = await searchTcgdexCandidates(detectedName, detectedNameEn, detectedNum, detectedSet);
+      const result = await searchTcgdexCandidates(detectedName, detectedNameEn, detectedNum, detectedSet);
+      candidates = result.candidates;
+      searchDebugNote = result.debugNote;
     } catch (err) {
       // On ne bloque pas le scan si TCGdex est indisponible : on retombe sur
       // le mode "carte non trouvée" plus bas côté front.
       candidates = [];
+      searchDebugNote = 'Erreur recherche TCGdex : ' + err.message;
     }
 
     return res.status(200).json({
       candidates,
       detectedName,
       detectedSet,
-      detectedNum
+      detectedNum,
+      debugNote: searchDebugNote || undefined
     });
 
   } catch (err) {
@@ -170,6 +175,10 @@ function normalizeText(s) {
 // total de cartes du set, proximité du nom d'extension) avant de les renvoyer.
 async function searchTcgdexCandidates(nameFr, nameEn, numRaw, setNameHint) {
   const { local, total } = parseCardNumber(numRaw);
+  // TCGdex stocke les localId sans zéros de tête (ex: "99", pas "099"), alors
+  // que le numéro imprimé sur la carte en a souvent. On normalise avant de
+  // filtrer côté API, sinon "eq:099" ne matchera jamais "99".
+  const localForQuery = /^\d+$/.test(local) ? String(parseInt(local, 10)) : local;
   const controller = AbortSignal.timeout(10000);
   const results = new Map();
 
@@ -177,7 +186,7 @@ async function searchTcgdexCandidates(nameFr, nameEn, numRaw, setNameHint) {
     for (const [lang, name] of [['fr', nameFr], ['en', nameEn]]) {
       if (!name) continue;
       const params = new URLSearchParams({ name });
-      if (withLocalIdFilter && local) params.set('localId', `eq:${local}`);
+      if (withLocalIdFilter && localForQuery) params.set('localId', `eq:${localForQuery}`);
       try {
         const r = await fetch(`https://api.tcgdex.net/v2/${lang}/cards?${params.toString()}`, { signal: controller });
         if (!r.ok) continue;
@@ -236,10 +245,11 @@ async function searchTcgdexCandidates(nameFr, nameEn, numRaw, setNameHint) {
   //   - total de cartes de l'extension identique (+2)
   //   - nom de l'extension détecté par l'IA proche du vrai nom du set (+2)
   const setHint = normalizeText(setNameHint);
+  const totalAsNumber = total ? parseInt(total, 10) : null;
   const scored = detailed.map(c => {
     let score = 0;
     if (localIdsMatch(c.number, local)) score += 3;
-    if (total && c.setTotal && String(c.setTotal) === String(total)) score += 2;
+    if (totalAsNumber && c.setTotal && parseInt(c.setTotal, 10) === totalAsNumber) score += 2;
     if (setHint && normalizeText(c.setName).includes(setHint)) score += 2;
     return { card: c, score };
   });
@@ -252,8 +262,22 @@ async function searchTcgdexCandidates(nameFr, nameEn, numRaw, setNameHint) {
   // le front bascule alors sur le mode "carte non trouvée" (ajout via la photo).
   const relevant = scored.filter(s => s.score > 0);
 
-  return relevant.slice(0, 6).map(({ card }) => {
-    const { setTotal, ...publicFields } = card;
-    return publicFields;
-  });
+  // Trace de debug : si tout a été écarté alors qu'on avait des candidats
+  // bruts, on garde le détail pour comprendre pourquoi (visible dans la
+  // réponse JSON et dans les logs serveur).
+  let debugNote = null;
+  if (relevant.length === 0 && scored.length > 0) {
+    debugNote = scored.slice(0, 6).map(s =>
+      `${s.card.cardName} (id:${s.card.id}, num:${s.card.number}, set:${s.card.setName}, score:${s.score})`
+    ).join(' | ');
+    console.error('[scan.js] Candidats trouvés mais aucun retenu (local=' + local + ', total=' + total + ', setHint="' + setNameHint + '") -> ' + debugNote);
+  }
+
+  return {
+    candidates: relevant.slice(0, 6).map(({ card }) => {
+      const { setTotal, ...publicFields } = card;
+      return publicFields;
+    }),
+    debugNote
+  };
 }
