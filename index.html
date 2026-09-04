@@ -367,15 +367,6 @@
         let candidates = data.candidates || [];
         const detectedName = data.detectedName || 'Inconnu';
 
-        // Filtre de sécurité anti-Dracaufeu
-        const isTargetCharizard = detectedName.toLowerCase().includes('dracaufeu') || detectedName.toLowerCase().includes('charizard');
-        if (!isTargetCharizard) {
-          candidates = candidates.filter(card => 
-            !card.cardName.toLowerCase().includes('charizard') && 
-            !card.cardName.toLowerCase().includes('dracaufeu')
-          );
-        }
-
         // Bascule sur le scan local si non trouvée sur l'API TCG
         if (candidates.length === 0) {
           const detectedSet = data.detectedSet || 'Extension récente';
