@@ -367,6 +367,10 @@
         let candidates = data.candidates || [];
         const detectedName = data.detectedName || 'Inconnu';
 
+        if (data.debugNote) {
+          console.log('[Scan] Détail de la recherche TCGdex :', data.debugNote);
+        }
+
         // Bascule sur le scan local si non trouvée sur l'API TCG
         if (candidates.length === 0) {
           const detectedSet = data.detectedSet || 'Extension récente';
