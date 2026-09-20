@@ -1,4 +1,5 @@
-import { CollectionItem, PokemonTCGCard } from '../types';
+import { CollectionItem, PokemonCard } from '../types';
+import { getBestPrice } from './pokemonTcg';
 
 const STORAGE_KEY = 'pokescan_collection_v1';
 
@@ -17,7 +18,7 @@ function saveCollection(items: CollectionItem[]) {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
 }
 
-export function addCardToCollection(card: PokemonTCGCard): CollectionItem[] {
+export function addCardToCollection(card: PokemonCard): CollectionItem[] {
   const items = loadCollection();
   const existing = items.find((i) => i.card.id === card.id);
 
@@ -54,12 +55,23 @@ export function deleteFromCollection(cardId: string): CollectionItem[] {
   return items;
 }
 
-export function getCollectionValue(items: CollectionItem[]): number {
-  return items.reduce((sum, item) => {
-    const prices = item.card.tcgplayer?.prices;
-    if (!prices) return sum;
-    const firstPriceGroup = Object.values(prices)[0];
-    const market = firstPriceGroup?.market || firstPriceGroup?.mid || 0;
-    return sum + market * item.quantity;
-  }, 0);
+/**
+ * Les prix TCGdex arrivent soit en EUR (Cardmarket), soit en USD (TCGPlayer)
+ * selon la carte. On ne les additionne pas entre devises différentes :
+ * on renvoie un total par devise.
+ */
+export function getCollectionValue(items: CollectionItem[]): { eur: number; usd: number } {
+  return items.reduce(
+    (totals, item) => {
+      const price = getBestPrice(item.card);
+      if (!price) return totals;
+      if (price.currency === 'EUR') {
+        totals.eur += price.value * item.quantity;
+      } else {
+        totals.usd += price.value * item.quantity;
+      }
+      return totals;
+    },
+    { eur: 0, usd: 0 }
+  );
 }

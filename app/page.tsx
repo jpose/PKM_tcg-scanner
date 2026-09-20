@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import CameraCapture from './components/CameraCapture';
 import CardResults from './components/CardResults';
 import CollectionGrid from './components/CollectionGrid';
-import { CollectionItem, PokemonTCGCard } from './types';
+import { CollectionItem, PokemonCard } from './types';
 import { searchPokemonCards } from './lib/pokemonTcg';
 import {
   addCardToCollection,
@@ -19,7 +19,7 @@ type Tab = 'scan' | 'collection';
 export default function Home() {
   const [tab, setTab] = useState<Tab>('scan');
   const [isBusy, setIsBusy] = useState(false);
-  const [results, setResults] = useState<PokemonTCGCard[] | null>(null);
+  const [results, setResults] = useState<PokemonCard[] | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [collection, setCollection] = useState<CollectionItem[]>([]);
   const [toast, setToast] = useState<string | null>(null);
@@ -67,13 +67,20 @@ export default function Home() {
       setResults(cards);
     } catch (err) {
       console.error(err);
-      setErrorMsg('Une erreur est survenue. Réessayez.');
+      const message = err instanceof Error ? err.message : '';
+      if (message.includes('Pokémon TCG')) {
+        setErrorMsg(
+          'La base de données Pokémon TCG est momentanément indisponible. Réessayez dans quelques instants.'
+        );
+      } else {
+        setErrorMsg('Une erreur est survenue. Réessayez.');
+      }
     } finally {
       setIsBusy(false);
     }
   }
 
-  function handleAdd(card: PokemonTCGCard) {
+  function handleAdd(card: PokemonCard) {
     const next = addCardToCollection(card);
     setCollection(next);
     setToast(`${card.name} ajoutée à la collection !`);
@@ -89,7 +96,11 @@ export default function Home() {
   }
 
   const totalCards = collection.reduce((sum, i) => sum + i.quantity, 0);
-  const totalValue = getCollectionValue(collection);
+  const { eur: totalEur, usd: totalUsd } = getCollectionValue(collection);
+  const valueParts: string[] = [];
+  if (totalEur > 0) valueParts.push(`${totalEur.toFixed(2)} €`);
+  if (totalUsd > 0) valueParts.push(`$${totalUsd.toFixed(2)}`);
+  const valueLabel = valueParts.length > 0 ? valueParts.join(' · ') : '—';
 
   return (
     <main className="min-h-screen pb-16">
@@ -140,7 +151,7 @@ export default function Home() {
           <div className="max-w-3xl mx-auto flex items-center justify-between text-sm text-gray-600 px-2">
             <span>{totalCards} carte(s)</span>
             <span className="font-semibold text-green-600">
-              Valeur estimée : {totalValue.toFixed(2)} $
+              Valeur estimée : {valueLabel}
             </span>
           </div>
           <CollectionGrid

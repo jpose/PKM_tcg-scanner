@@ -10,8 +10,10 @@ l'API Pokémon TCG (gratuite).
 1. Vous prenez une photo de la carte avec votre téléphone (dans le navigateur).
 2. La photo est envoyée à l'API Gemini (gratuite) qui identifie le nom, le
    numéro et l'extension de la carte.
-3. L'app interroge l'API Pokémon TCG (gratuite, sans clé obligatoire) pour
-   retrouver la carte exacte, son image officielle et sa cote de marché.
+3. L'app interroge **TCGdex** (api.tcgdex.net), une base de données Pokémon
+   TCG open source et entièrement gratuite (aucune clé, aucune inscription)
+   pour retrouver la carte exacte, son image officielle et sa cote de marché
+   (Cardmarket en euros et/ou TCGPlayer en dollars selon les cartes).
 4. Vous choisissez la bonne carte parmi les résultats et l'ajoutez à votre
    collection.
 5. La collection est sauvegardée directement dans le navigateur
@@ -86,9 +88,8 @@ github.com.)
    Variables** et ajoutez :
    - `GEMINI_API_KEYS` = vos clés séparées par une virgule, ex.
      `AIza...clé1,AIza...clé2` (ou `GEMINI_API_KEY` avec une seule clé)
-   - (optionnel) `NEXT_PUBLIC_POKEMONTCG_API_KEY` = une clé gratuite de
-     https://dev.pokemontcg.io/ si vous voulez éviter les limites de débit
-     par défaut de l'API publique
+   - Aucune autre clé n'est nécessaire : la base de données de cartes
+     (TCGdex) est gratuite et ne demande pas d'authentification.
 6. Cliquez sur **Deploy**. Au bout d'une minute, votre app est en ligne sur
    une URL du type `pokescan-xxxx.vercel.app`.
 

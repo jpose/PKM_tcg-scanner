@@ -6,46 +6,35 @@ export interface IdentifiedCard {
   confidence: 'high' | 'medium' | 'low';
 }
 
-export interface PokemonTCGCard {
+// Format d'une carte tel que renvoyé par l'API TCGdex (api.tcgdex.net)
+// Champs volontairement optionnels/larges : l'API évolue et tous les
+// champs ne sont pas garantis sur toutes les cartes (Pokémon/Dresseur/Énergie).
+export interface PokemonCard {
   id: string;
+  localId: string;
   name: string;
-  supertype: string;
-  subtypes?: string[];
-  hp?: string;
-  types?: string[];
+  category?: string;
+  illustrator?: string;
   rarity?: string;
-  number: string;
+  hp?: number;
+  types?: string[];
+  // URL de base de l'image, sans extension : voir buildCardImageUrl()
+  image?: string;
   set: {
     id: string;
     name: string;
-    series: string;
-    releaseDate: string;
-    images: {
-      symbol: string;
-      logo: string;
-    };
+    logo?: string;
+    symbol?: string;
   };
-  images: {
-    small: string;
-    large: string;
-  };
-  tcgplayer?: {
-    url: string;
-    prices?: Record<
-      string,
-      {
-        low?: number;
-        mid?: number;
-        high?: number;
-        market?: number;
-      }
-    >;
+  pricing?: {
+    cardmarket?: Record<string, any>;
+    tcgplayer?: Record<string, any>;
   };
 }
 
 export interface CollectionItem {
-  id: string; // unique local id
-  card: PokemonTCGCard;
+  id: string; // identifiant local unique
+  card: PokemonCard;
   addedAt: number;
   quantity: number;
 }

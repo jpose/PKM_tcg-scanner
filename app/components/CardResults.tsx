@@ -1,21 +1,22 @@
 'use client';
 
 import Image from 'next/image';
-import { PokemonTCGCard } from '../types';
+import { PokemonCard } from '../types';
+import { buildCardImageUrl, getBestPrice } from '../lib/pokemonTcg';
 
 interface Props {
-  cards: PokemonTCGCard[];
-  onAdd: (card: PokemonTCGCard) => void;
+  cards: PokemonCard[];
+  onAdd: (card: PokemonCard) => void;
   onDismiss: () => void;
 }
 
-function formatPrice(card: PokemonTCGCard): string | null {
-  const prices = card.tcgplayer?.prices;
-  if (!prices) return null;
-  const group = Object.values(prices)[0];
-  const value = group?.market ?? group?.mid;
-  if (!value) return null;
-  return `${value.toFixed(2)} $`;
+function formatPrice(card: PokemonCard): string | null {
+  const price = getBestPrice(card);
+  if (!price) return null;
+  const symbol = price.currency === 'EUR' ? '€' : '$';
+  return price.currency === 'EUR'
+    ? `${price.value.toFixed(2)} ${symbol}`
+    : `${symbol}${price.value.toFixed(2)}`;
 }
 
 export default function CardResults({ cards, onAdd, onDismiss }: Props) {
@@ -45,42 +46,47 @@ export default function CardResults({ cards, onAdd, onDismiss }: Props) {
         </button>
       </div>
       <div className="space-y-3">
-        {cards.slice(0, 5).map((card) => (
-          <div
-            key={card.id}
-            className="flex items-center gap-3 bg-white rounded-xl p-3 card-shadow"
-          >
-            <div className="relative w-16 h-22 flex-shrink-0">
-              <Image
-                src={card.images.small}
-                alt={card.name}
-                width={64}
-                height={89}
-                className="rounded-md object-contain"
-              />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-medium truncate">{card.name}</p>
-              <p className="text-xs text-gray-500 truncate">
-                {card.set.name} · #{card.number}
-              </p>
-              {card.rarity && (
-                <p className="text-xs text-gray-400 truncate">{card.rarity}</p>
-              )}
-              {formatPrice(card) && (
-                <p className="text-xs font-semibold text-green-600 mt-0.5">
-                  {formatPrice(card)}
-                </p>
-              )}
-            </div>
-            <button
-              onClick={() => onAdd(card)}
-              className="flex-shrink-0 px-3 py-2 rounded-lg bg-poke-yellow text-poke-dark text-sm font-semibold active:scale-95 transition-transform"
+        {cards.slice(0, 5).map((card) => {
+          const imageUrl = buildCardImageUrl(card, 'low', 'webp');
+          return (
+            <div
+              key={card.id}
+              className="flex items-center gap-3 bg-white rounded-xl p-3 card-shadow"
             >
-              Ajouter
-            </button>
-          </div>
-        ))}
+              <div className="relative w-16 h-22 flex-shrink-0">
+                {imageUrl && (
+                  <Image
+                    src={imageUrl}
+                    alt={card.name}
+                    width={64}
+                    height={89}
+                    className="rounded-md object-contain"
+                  />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium truncate">{card.name}</p>
+                <p className="text-xs text-gray-500 truncate">
+                  {card.set?.name} · #{card.localId}
+                </p>
+                {card.rarity && (
+                  <p className="text-xs text-gray-400 truncate">{card.rarity}</p>
+                )}
+                {formatPrice(card) && (
+                  <p className="text-xs font-semibold text-green-600 mt-0.5">
+                    {formatPrice(card)}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => onAdd(card)}
+                className="flex-shrink-0 px-3 py-2 rounded-lg bg-poke-yellow text-poke-dark text-sm font-semibold active:scale-95 transition-transform"
+              >
+                Ajouter
+              </button>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
