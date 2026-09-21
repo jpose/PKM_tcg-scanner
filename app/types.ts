@@ -6,6 +6,15 @@ export interface IdentifiedCard {
   confidence: 'high' | 'medium' | 'low';
 }
 
+export type CardVariant = 'normal' | 'reverse' | 'holo' | 'firstEdition';
+
+export const VARIANT_LABELS: Record<CardVariant, string> = {
+  normal: 'Normale',
+  reverse: 'Reverse',
+  holo: 'Holo',
+  firstEdition: '1ère édition',
+};
+
 // Format d'une carte tel que renvoyé par l'API TCGdex (api.tcgdex.net)
 // Champs volontairement optionnels/larges : l'API évolue et tous les
 // champs ne sont pas garantis sur toutes les cartes (Pokémon/Dresseur/Énergie).
@@ -26,6 +35,8 @@ export interface PokemonCard {
     logo?: string;
     symbol?: string;
   };
+  // Quelles variantes existent physiquement pour cette carte précise.
+  variants?: Partial<Record<CardVariant, boolean>>;
   pricing?: {
     cardmarket?: Record<string, any>;
     tcgplayer?: Record<string, any>;
@@ -33,8 +44,9 @@ export interface PokemonCard {
 }
 
 export interface CollectionItem {
-  id: string; // identifiant local unique
+  id: string; // identifiant local unique (carte + variante)
   card: PokemonCard;
+  variant: CardVariant;
   addedAt: number;
   quantity: number;
 }

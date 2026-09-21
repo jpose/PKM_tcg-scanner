@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import CameraCapture from './components/CameraCapture';
 import CardResults from './components/CardResults';
 import CollectionGrid from './components/CollectionGrid';
-import { CollectionItem, PokemonCard } from './types';
+import { CardVariant, CollectionItem, PokemonCard } from './types';
 import { searchPokemonCards } from './lib/pokemonTcg';
 import {
   addCardToCollection,
@@ -80,19 +80,19 @@ export default function Home() {
     }
   }
 
-  function handleAdd(card: PokemonCard) {
-    const next = addCardToCollection(card);
+  function handleAdd(card: PokemonCard, variant: CardVariant) {
+    const next = addCardToCollection(card, variant);
     setCollection(next);
     setToast(`${card.name} ajoutée à la collection !`);
     setResults(null);
   }
 
-  function handleRemoveOne(cardId: string) {
-    setCollection(removeOneFromCollection(cardId));
+  function handleRemoveOne(itemId: string) {
+    setCollection(removeOneFromCollection(itemId));
   }
 
-  function handleDelete(cardId: string) {
-    setCollection(deleteFromCollection(cardId));
+  function handleDelete(itemId: string) {
+    setCollection(deleteFromCollection(itemId));
   }
 
   const totalCards = collection.reduce((sum, i) => sum + i.quantity, 0);

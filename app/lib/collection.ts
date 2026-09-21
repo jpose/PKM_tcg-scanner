@@ -1,14 +1,33 @@
-import { CollectionItem, PokemonCard } from '../types';
-import { getBestPrice } from './pokemonTcg';
+import { CardVariant, CollectionItem, PokemonCard } from '../types';
+import { getPriceForVariant } from './pokemonTcg';
 
-const STORAGE_KEY = 'pokescan_collection_v1';
+const STORAGE_KEY = 'pokescan_collection_v2';
+const LEGACY_STORAGE_KEY = 'pokescan_collection_v1';
+
+function itemKey(cardId: string, variant: CardVariant) {
+  return `${cardId}::${variant}`;
+}
 
 export function loadCollection(): CollectionItem[] {
   if (typeof window === 'undefined') return [];
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    return JSON.parse(raw) as CollectionItem[];
+    if (raw) return JSON.parse(raw) as CollectionItem[];
+
+    // Migration douce depuis l'ancien format (sans variante = "normal").
+    const legacyRaw = window.localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (legacyRaw) {
+      const legacyItems = JSON.parse(legacyRaw) as Array<
+        Omit<CollectionItem, 'variant'> & { variant?: CardVariant }
+      >;
+      const migrated: CollectionItem[] = legacyItems.map((item) => ({
+        ...item,
+        variant: item.variant || 'normal',
+      }));
+      saveCollection(migrated);
+      return migrated;
+    }
+    return [];
   } catch {
     return [];
   }
@@ -18,19 +37,21 @@ function saveCollection(items: CollectionItem[]) {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
 }
 
-export function addCardToCollection(card: PokemonCard): CollectionItem[] {
+export function addCardToCollection(card: PokemonCard, variant: CardVariant): CollectionItem[] {
   const items = loadCollection();
-  const existing = items.find((i) => i.card.id === card.id);
+  const key = itemKey(card.id, variant);
+  const existing = items.find((i) => itemKey(i.card.id, i.variant) === key);
 
   let next: CollectionItem[];
   if (existing) {
     next = items.map((i) =>
-      i.card.id === card.id ? { ...i, quantity: i.quantity + 1 } : i
+      itemKey(i.card.id, i.variant) === key ? { ...i, quantity: i.quantity + 1 } : i
     );
   } else {
     const newItem: CollectionItem = {
-      id: `${card.id}-${Date.now()}`,
+      id: `${key}-${Date.now()}`,
       card,
+      variant,
       addedAt: Date.now(),
       quantity: 1,
     };
@@ -40,17 +61,17 @@ export function addCardToCollection(card: PokemonCard): CollectionItem[] {
   return next;
 }
 
-export function removeOneFromCollection(cardId: string): CollectionItem[] {
+export function removeOneFromCollection(itemId: string): CollectionItem[] {
   const items = loadCollection();
   const next = items
-    .map((i) => (i.card.id === cardId ? { ...i, quantity: i.quantity - 1 } : i))
+    .map((i) => (i.id === itemId ? { ...i, quantity: i.quantity - 1 } : i))
     .filter((i) => i.quantity > 0);
   saveCollection(next);
   return next;
 }
 
-export function deleteFromCollection(cardId: string): CollectionItem[] {
-  const items = loadCollection().filter((i) => i.card.id !== cardId);
+export function deleteFromCollection(itemId: string): CollectionItem[] {
+  const items = loadCollection().filter((i) => i.id !== itemId);
   saveCollection(items);
   return items;
 }
@@ -63,7 +84,7 @@ export function deleteFromCollection(cardId: string): CollectionItem[] {
 export function getCollectionValue(items: CollectionItem[]): { eur: number; usd: number } {
   return items.reduce(
     (totals, item) => {
-      const price = getBestPrice(item.card);
+      const price = getPriceForVariant(item.card, item.variant);
       if (!price) return totals;
       if (price.currency === 'EUR') {
         totals.eur += price.value * item.quantity;
