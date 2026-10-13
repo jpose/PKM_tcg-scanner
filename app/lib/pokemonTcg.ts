@@ -13,18 +13,37 @@ interface CardBrief {
   image?: string;
 }
 
+const LANGS = ['fr', 'en'] as const;
+const detailCache = new Map<string, PokemonCard>();
+
+// "004/102" et "4" désignent la même carte : on neutralise les zéros initiaux.
+function normalizeNumber(n?: string | null): string {
+  return (n ?? '').split('/')[0].trim().replace(/^0+(?=\d)/, '').toLowerCase();
+}
+
 /**
- * Recherche des cartes correspondant au nom identifié par l'IA, puis
- * récupère le détail complet (set, rareté, prix) des meilleurs candidats.
+ * Recherche des cartes par nom (base française, puis anglaise si rien
+ * n'est trouvé), puis récupère le détail complet des meilleurs candidats.
  */
 export async function searchPokemonCards(params: {
   name: string;
   cardNumber?: string | null;
   setName?: string | null;
 }): Promise<PokemonCard[]> {
+  for (const lang of LANGS) {
+    const cards = await searchInLang(lang, params);
+    if (cards.length > 0) return cards;
+  }
+  return [];
+}
+
+async function searchInLang(
+  lang: string,
+  params: { name: string; cardNumber?: string | null; setName?: string | null }
+): Promise<PokemonCard[]> {
   const { name, cardNumber, setName } = params;
 
-  const listUrl = new URL(`${BASE_URL}/${LANG}/cards`);
+  const listUrl = new URL(`${BASE_URL}/${lang}/cards`);
   listUrl.searchParams.set('name', name);
 
   const listRes = await fetchWithRetry(listUrl.toString());
@@ -32,29 +51,29 @@ export async function searchPokemonCards(params: {
     throw new Error(`Erreur API Pokémon TCG (${listRes.status})`);
   }
   const briefs: CardBrief[] = await listRes.json();
+  if (!Array.isArray(briefs) || briefs.length === 0) return [];
 
-  if (!briefs || briefs.length === 0) return [];
-
-  // Classe les résultats bruts selon le numéro de carte s'il est connu,
-  // avant d'aller chercher le détail complet (pour limiter les appels).
+  const num = normalizeNumber(cardNumber);
   let ranked = briefs;
-  if (cardNumber) {
-    const num = cardNumber.split('/')[0].trim();
-    ranked = [...ranked].sort((a, b) => {
-      const aMatch = a.localId === num ? 1 : 0;
-      const bMatch = b.localId === num ? 1 : 0;
-      return bMatch - aMatch;
-    });
+  if (num) {
+    ranked = [...briefs].sort(
+      (a, b) =>
+        Number(normalizeNumber(b.localId) === num) - Number(normalizeNumber(a.localId) === num)
+    );
   }
 
-  const topCandidates = ranked.slice(0, 8);
-
+  // Détails en parallèle, avec cache : un second scan de la même carte est instantané.
   const details = await Promise.all(
-    topCandidates.map(async (brief) => {
+    ranked.slice(0, 6).map(async (brief) => {
+      const key = `${lang}:${brief.id}`;
+      const cached = detailCache.get(key);
+      if (cached) return cached;
       try {
-        const res = await fetchWithRetry(`${BASE_URL}/${LANG}/cards/${brief.id}`);
+        const res = await fetchWithRetry(`${BASE_URL}/${lang}/cards/${brief.id}`);
         if (!res.ok) return null;
-        return (await res.json()) as PokemonCard;
+        const card = (await res.json()) as PokemonCard;
+        detailCache.set(key, card);
+        return card;
       } catch {
         return null;
       }
@@ -65,11 +84,11 @@ export async function searchPokemonCards(params: {
 
   if (setName) {
     const setLower = setName.toLowerCase();
-    cards = [...cards].sort((a, b) => {
-      const aMatch = a.set?.name?.toLowerCase().includes(setLower) ? 1 : 0;
-      const bMatch = b.set?.name?.toLowerCase().includes(setLower) ? 1 : 0;
-      return bMatch - aMatch;
-    });
+    cards = [...cards].sort(
+      (a, b) =>
+        Number(!!b.set?.name?.toLowerCase().includes(setLower)) -
+        Number(!!a.set?.name?.toLowerCase().includes(setLower))
+    );
   }
 
   return cards;

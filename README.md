@@ -50,6 +50,13 @@ Pour utiliser 2 clés (ou plus) :
 Si vous n'avez qu'une seule clé, `GEMINI_API_KEY=votre_cle` (sans le S)
 fonctionne toujours normalement.
 
+### Vitesse de reconnaissance
+
+L'app est réglée pour une lecture rapide : photo réduite à 800 px avant envoi,
+réponse JSON courte et raisonnement Gemini désactivé (`thinkingLevel: minimal`),
+fonction serveur placée à Paris. Si Google retire un jour le modèle, changez
+simplement la variable `GEMINI_MODEL` sur Vercel (ex. `gemini-3.6-flash`).
+
 ## 2. Lancer en local (facultatif, pour tester avant de déployer)
 
 ```bash

@@ -4,162 +4,187 @@ import { useMemo, useState } from 'react';
 import Image from 'next/image';
 import { CollectionItem, VARIANT_LABELS } from '../types';
 import { buildCardImageUrl, getPriceForVariant } from '../lib/pokemonTcg';
+import { foilClass, formatPrice } from '../lib/ui';
+import Pokeball from './Pokeball';
 
 interface Props {
   items: CollectionItem[];
+  onAddOne: (itemId: string) => void;
   onRemoveOne: (itemId: string) => void;
-  onDelete: (itemId: string) => void;
+  onScan: () => void;
 }
 
-type SortMode = 'name' | 'set' | 'recent' | 'value';
+type SortMode = 'number' | 'name' | 'value' | 'recent';
 
-function formatItemPrice(item: CollectionItem): string | null {
-  const price = getPriceForVariant(item.card, item.variant);
-  if (!price) return null;
-  return price.currency === 'EUR'
-    ? `${price.value.toFixed(2)} €`
-    : `$${price.value.toFixed(2)}`;
-}
+const norm = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const unitValue = (i: CollectionItem) => getPriceForVariant(i.card, i.variant)?.value ?? 0;
 
-function priceValue(item: CollectionItem): number {
-  return getPriceForVariant(item.card, item.variant)?.value ?? 0;
-}
-
-function sortItems(items: CollectionItem[], sortMode: SortMode): CollectionItem[] {
-  const sorted = [...items];
-  switch (sortMode) {
+function sortItems(items: CollectionItem[], mode: SortMode): CollectionItem[] {
+  const list = [...items];
+  const byNumber = (a: CollectionItem, b: CollectionItem) =>
+    (a.card.set?.name ?? '').localeCompare(b.card.set?.name ?? '') ||
+    a.card.localId.localeCompare(b.card.localId, undefined, { numeric: true });
+  switch (mode) {
     case 'name':
-      return sorted.sort((a, b) => a.card.name.localeCompare(b.card.name));
-    case 'set':
-      return sorted.sort((a, b) => a.card.set.name.localeCompare(b.card.set.name));
+      return list.sort((a, b) => a.card.name.localeCompare(b.card.name));
     case 'value':
-      return sorted.sort((a, b) => priceValue(b) - priceValue(a));
+      return list.sort((a, b) => unitValue(b) - unitValue(a));
     case 'recent':
+      return list.sort((a, b) => b.addedAt - a.addedAt);
     default:
-      return sorted.sort((a, b) => b.addedAt - a.addedAt);
+      return list.sort(byNumber);
   }
 }
 
-export default function CollectionGrid({ items, onRemoveOne, onDelete }: Props) {
-  const [sortMode, setSortMode] = useState<SortMode>('recent');
-  const [groupBySet, setGroupBySet] = useState(false);
+export default function CollectionGrid({ items, onAddOne, onRemoveOne, onScan }: Props) {
+  const [query, setQuery] = useState('');
+  const [sortMode, setSortMode] = useState<SortMode>('number');
+  const [groupBySet, setGroupBySet] = useState(true);
 
   const groups = useMemo(() => {
-    const sorted = sortItems(items, sortMode);
-    if (!groupBySet) {
-      return [{ label: null as string | null, items: sorted }];
-    }
-    const map = new Map<string, CollectionItem[]>();
-    for (const item of sorted) {
-      const key = item.card.set?.name || 'Édition inconnue';
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(item);
+    const q = norm(query.trim());
+    const filtered = q
+      ? items.filter((i) => norm(i.card.name).includes(q) || norm(i.card.set?.name ?? '').includes(q))
+      : items;
+    const sorted = sortItems(filtered, sortMode);
+    if (!groupBySet) return [{ label: null as string | null, logo: undefined as string | undefined, items: sorted }];
+
+    const map = new Map<string, { logo?: string; items: CollectionItem[] }>();
+    for (const it of sorted) {
+      const key = it.card.set?.name || 'Édition inconnue';
+      if (!map.has(key)) map.set(key, { logo: it.card.set?.logo, items: [] });
+      map.get(key)!.items.push(it);
     }
     return Array.from(map.entries())
       .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([label, groupItems]) => ({ label, items: groupItems }));
-  }, [items, sortMode, groupBySet]);
+      .map(([label, g]) => ({ label, logo: g.logo, items: g.items }));
+  }, [items, query, sortMode, groupBySet]);
 
   if (items.length === 0) {
     return (
-      <p className="text-center text-gray-500 mt-6">
-        Votre collection est vide pour l’instant. Scannez une carte pour commencer !
-      </p>
+      <div className="panel mx-auto mt-6 max-w-sm p-8 text-center">
+        <Pokeball size={64} muted className="mx-auto" />
+        <p className="mt-4 font-display text-lg">Votre classeur est vide</p>
+        <p className="mt-1 text-sm font-semibold text-ink/70">
+          Scannez votre première carte : elle viendra se ranger ici avec sa valeur.
+        </p>
+        <button onClick={onScan} className="btn-chunky mt-5 bg-pika">
+          Scanner une carte
+        </button>
+      </div>
     );
   }
 
   return (
-    <div className="max-w-3xl mx-auto">
-      <div className="flex flex-wrap items-center gap-3 px-2 mt-4">
-        <label className="text-sm text-gray-600 flex items-center gap-2">
-          Trier par
-          <select
-            value={sortMode}
-            onChange={(e) => setSortMode(e.target.value as SortMode)}
-            className="border border-gray-200 rounded-lg px-2 py-1 text-sm bg-white"
-          >
-            <option value="recent">Ajout récent</option>
-            <option value="name">Nom</option>
-            <option value="set">Édition</option>
-            <option value="value">Valeur</option>
-          </select>
-        </label>
-        <label className="text-sm text-gray-600 flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={groupBySet}
-            onChange={(e) => setGroupBySet(e.target.checked)}
-          />
-          Grouper par édition
-        </label>
+    <div className="mx-auto max-w-3xl">
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Chercher un nom ou une édition"
+          className="min-w-0 flex-1 rounded-xl border-2 border-ink bg-white px-3 py-2 text-sm font-semibold placeholder:text-ink/45"
+        />
+        <select
+          value={sortMode}
+          onChange={(e) => setSortMode(e.target.value as SortMode)}
+          aria-label="Trier par"
+          className="rounded-xl border-2 border-ink bg-white px-2 py-2 text-sm font-bold"
+        >
+          <option value="number">N° dans l’édition</option>
+          <option value="name">Nom</option>
+          <option value="value">Valeur</option>
+          <option value="recent">Ajout récent</option>
+        </select>
       </div>
+      <label className="mt-3 flex items-center gap-2 text-sm font-bold">
+        <input type="checkbox" checked={groupBySet} onChange={(e) => setGroupBySet(e.target.checked)} className="h-4 w-4 accent-[#E23B2E]" />
+        Classer par édition
+      </label>
 
-      {groups.map((group) => (
-        <div key={group.label ?? 'all'}>
-          {group.label && (
-            <h3 className="mt-6 mb-2 px-2 text-sm font-semibold text-gray-500 uppercase tracking-wide">
-              {group.label} ({group.items.length})
-            </h3>
-          )}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 px-2">
-            {group.items.map((item) => {
-              const imageUrl = buildCardImageUrl(item.card, 'low', 'webp');
-              const price = formatItemPrice(item);
-              return (
-                <div
-                  key={item.id}
-                  className="bg-white rounded-xl p-2 card-shadow flex flex-col items-center"
-                >
-                  <div className="relative w-full aspect-[2/3]">
-                    {imageUrl && (
-                      <Image
-                        src={imageUrl}
-                        alt={item.card.name}
-                        fill
-                        className="object-contain rounded-md"
-                        sizes="200px"
-                      />
-                    )}
-                    {item.quantity > 1 && (
-                      <span className="absolute top-1 right-1 bg-poke-red text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center">
-                        x{item.quantity}
+      {groups.length === 0 || groups.every((g) => g.items.length === 0) ? (
+        <p className="mt-8 text-center text-sm font-bold text-ink/60">Aucune carte ne correspond à « {query} ».</p>
+      ) : (
+        groups.map((group) => (
+          <section key={group.label ?? 'all'} className="mt-6">
+            {group.label && (
+              <h3 className="mb-3 flex items-center gap-2 border-b-2 border-ink pb-1.5">
+                {group.logo && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={`${group.logo}.png`}
+                    alt=""
+                    className="h-6 max-w-[72px] object-contain"
+                    onError={(e) => (e.currentTarget.style.display = 'none')}
+                  />
+                )}
+                <span className="font-display text-sm">{group.label}</span>
+                <span className="ml-auto text-xs font-extrabold text-ink/60">
+                  {group.items.reduce((n, i) => n + i.quantity, 0)} carte(s)
+                </span>
+              </h3>
+            )}
+            <ul className="grid grid-cols-3 gap-x-2.5 gap-y-5 sm:grid-cols-4">
+              {group.items.map((item) => {
+                const img = buildCardImageUrl(item.card, 'low', 'webp');
+                const price = formatPrice(getPriceForVariant(item.card, item.variant));
+                return (
+                  <li key={item.id} className="min-w-0">
+                    <div className={`relative ${foilClass(item.variant)}`}>
+                      {img && (
+                        <Image
+                          src={img}
+                          alt={`${item.card.name}, ${item.card.set?.name ?? ''}`}
+                          width={245}
+                          height={342}
+                          unoptimized
+                          className="h-auto w-full rounded-[7px] shadow-[0_3px_8px_rgba(27,35,64,0.35)]"
+                        />
+                      )}
+                      {item.quantity > 1 && (
+                        <span className="absolute right-1 top-1 z-10 rounded-full border-2 border-ink bg-pika px-1.5 text-[11px] font-extrabold">
+                          ×{item.quantity}
+                        </span>
+                      )}
+                    </div>
+
+                    <p className="mt-1.5 truncate text-[13px] font-extrabold leading-tight">{item.card.name}</p>
+                    <div className="mt-0.5 flex items-center justify-between gap-1">
+                      <span className="truncate text-[11px] font-bold text-ink/60">
+                        n° {item.card.localId}
+                        {item.variant !== 'normal' && ` · ${VARIANT_LABELS[item.variant]}`}
                       </span>
-                    )}
-                  </div>
-                  <p className="text-sm font-medium mt-2 text-center truncate w-full">
-                    {item.card.name}
-                  </p>
-                  <p className="text-xs text-gray-400 truncate w-full text-center">
-                    {item.card.set?.name}
-                  </p>
-                  <div className="flex items-center gap-1.5 mt-1">
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-poke-blue/10 text-poke-blue font-medium">
-                      {VARIANT_LABELS[item.variant]}
-                    </span>
-                    {price && (
-                      <span className="text-xs font-semibold text-green-600">{price}</span>
-                    )}
-                  </div>
-                  <div className="flex gap-2 mt-2">
-                    <button
-                      onClick={() => onRemoveOne(item.id)}
-                      className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200"
-                    >
-                      -1
-                    </button>
-                    <button
-                      onClick={() => onDelete(item.id)}
-                      className="text-xs px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100"
-                    >
-                      Suppr.
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ))}
+                    </div>
+                    <p className="mt-1 inline-block rounded-md bg-ink px-1.5 py-0.5 font-display text-[12px] text-white">
+                      {price ?? 'Prix n.c.'}
+                    </p>
+
+                    <div className="mt-1.5 flex items-center justify-between rounded-lg border-2 border-ink/20 bg-white">
+                      <button
+                        onClick={() => {
+                          if (item.quantity > 1 || window.confirm('Retirer cette carte du classeur ?')) onRemoveOne(item.id);
+                        }}
+                        aria-label="Retirer un exemplaire"
+                        className="grid h-7 w-8 place-items-center text-base font-extrabold active:bg-ink/10"
+                      >
+                        −
+                      </button>
+                      <span className="text-xs font-extrabold">×{item.quantity}</span>
+                      <button
+                        onClick={() => onAddOne(item.id)}
+                        aria-label="Ajouter un exemplaire"
+                        className="grid h-7 w-8 place-items-center text-base font-extrabold active:bg-ink/10"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        ))
+      )}
     </div>
   );
 }

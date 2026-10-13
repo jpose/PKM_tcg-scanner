@@ -1,102 +1,133 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { NextRequest, NextResponse } from 'next/server';
 import { getKeysRoundRobinOrder, isQuotaOrRateLimitError } from '../../lib/geminiKeyPool';
 
 export const runtime = 'nodejs';
+export const maxDuration = 30;
+// Paris : rapproche la fonction de vos utilisateurs.
+export const preferredRegion = 'cdg1';
 
-const SYSTEM_PROMPT = `Tu es un expert en cartes à collectionner Pokémon (JCC).
-On te donne la photo d'une carte Pokémon. Identifie-la aussi précisément que possible.
+// Modifiable sans toucher au code via la variable d'environnement GEMINI_MODEL
+// (utile si Google retire encore un modèle).
+const MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
-Réponds STRICTEMENT en JSON valide, sans texte autour, avec ce format exact :
-{
-  "name": "nom du Pokémon ou de la carte (ex: Dracaufeu, Dresseur Ptéra...)",
-  "setName": "nom de l'extension si visible, sinon null",
-  "cardNumber": "numéro de la carte tel qu'affiché, ex: 4/102, sinon null",
-  "rarity": "rareté si tu peux la déduire (Commune, Peu Commune, Rare, Rare Holo, Ultra Rare...), sinon null",
-  "confidence": "high, medium ou low selon ta certitude"
+// Prompt court = moins de tokens en entrée, réponse plus rapide.
+const PROMPT =
+  'Carte Pokémon (JCC). Lis le texte imprimé et réponds en JSON avec exactement ces clés : ' +
+  '"name" (nom exact de la carte tel qu\'imprimé), "cardNumber" (ex "4/102", sinon null), ' +
+  '"setName" (extension si lisible, sinon null), "rarity" (sinon null). ' +
+  'Si l\'image n\'est pas une carte Pokémon : {"name": null}.';
+
+function buildBody(imageBase64: string, mimeType: string, withThinkingConfig: boolean) {
+  return {
+    contents: [
+      {
+        role: 'user',
+        parts: [{ inlineData: { mimeType, data: imageBase64 } }, { text: PROMPT }],
+      },
+    ],
+    generationConfig: {
+      temperature: 0,
+      responseMimeType: 'application/json',
+      maxOutputTokens: 600,
+      // Lire un nom de carte ne demande aucun raisonnement : c'était la
+      // cause principale de la lenteur (thinking "medium" par défaut).
+      ...(withThinkingConfig ? { thinkingConfig: { thinkingLevel: 'minimal' } } : {}),
+    },
+  };
 }
 
-Si l'image ne contient clairement pas de carte Pokémon, réponds avec name: null pour tous les champs et confidence: "low".
-Ne mets jamais de commentaires ni de texte hors du JSON.`;
+async function callGemini(apiKey: string, body: unknown): Promise<Response> {
+  return fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+    body: JSON.stringify(body),
+  });
+}
+
+function httpError(res: Response, detail: string) {
+  const err: any = new Error(detail || `Erreur Gemini (${res.status})`);
+  err.status = res.status;
+  return err;
+}
+
+async function identifyWithKey(apiKey: string, imageBase64: string, mimeType: string) {
+  let res = await callGemini(apiKey, buildBody(imageBase64, mimeType, true));
+
+  // Filet de sécurité : si Google rejette le réglage "thinking", on réessaie sans.
+  if (res.status === 400) {
+    res = await callGemini(apiKey, buildBody(imageBase64, mimeType, false));
+  }
+
+  if (!res.ok) {
+    let detail = '';
+    try {
+      detail = (await res.json())?.error?.message || '';
+    } catch {}
+    throw httpError(res, detail);
+  }
+
+  const json = await res.json();
+  const parts: any[] = json?.candidates?.[0]?.content?.parts ?? [];
+  const text = parts
+    .filter((p) => !p.thought && typeof p.text === 'string')
+    .map((p) => p.text)
+    .join('')
+    .replace(/```json/gi, '')
+    .replace(/```/g, '')
+    .trim();
+
+  return JSON.parse(text);
+}
 
 export async function POST(req: NextRequest) {
+  const started = Date.now();
   const keys = getKeysRoundRobinOrder();
 
   if (keys.length === 0) {
     return NextResponse.json(
-      {
-        error:
-          'Aucune clé Gemini configurée sur le serveur. Ajoutez GEMINI_API_KEYS (ou GEMINI_API_KEY_1 / GEMINI_API_KEY_2) dans les variables d’environnement.',
-      },
+      { error: 'Aucune clé Gemini configurée sur le serveur (GEMINI_API_KEYS).' },
       { status: 500 }
     );
   }
 
-  const body = await req.json();
-  const { imageBase64, mimeType } = body as { imageBase64?: string; mimeType?: string };
-
+  let imageBase64: string | undefined;
+  let mimeType: string | undefined;
+  try {
+    ({ imageBase64, mimeType } = await req.json());
+  } catch {
+    return NextResponse.json({ error: 'Requête invalide.' }, { status: 400 });
+  }
   if (!imageBase64) {
     return NextResponse.json({ error: 'Aucune image reçue.' }, { status: 400 });
   }
 
   let lastError: any = null;
-
-  // Essaie chaque clé du pool tour à tour. Si une clé est à quota (429)
-  // ou refusée (403), on bascule automatiquement sur la suivante.
   for (let i = 0; i < keys.length; i++) {
-    const apiKey = keys[i];
     try {
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
-
-      const result = await model.generateContent([
-        SYSTEM_PROMPT,
-        {
-          inlineData: {
-            data: imageBase64,
-            mimeType: mimeType || 'image/jpeg',
-          },
-        },
-      ]);
-
-      const text = result.response.text().trim();
-
-      // Le modèle peut parfois entourer le JSON de ```json ... ```
-      const cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
-
-      let parsed;
-      try {
-        parsed = JSON.parse(cleaned);
-      } catch (e) {
+      const result = await identifyWithKey(keys[i], imageBase64, mimeType || 'image/jpeg');
+      return NextResponse.json({ result, ms: Date.now() - started });
+    } catch (err: any) {
+      lastError = err;
+      if (err instanceof SyntaxError) {
         return NextResponse.json(
-          { error: 'Réponse IA illisible, réessayez avec une photo plus nette.', raw: text },
+          { error: 'Réponse illisible, réessayez avec une photo plus nette.' },
           { status: 502 }
         );
       }
-
-      return NextResponse.json({
-        result: parsed,
-        ...(process.env.NODE_ENV !== 'production' ? { debugKeyIndex: i } : {}),
-      });
-    } catch (err: any) {
-      lastError = err;
-      if (isQuotaOrRateLimitError(err) && i < keys.length - 1) {
-        console.warn(`Clé Gemini #${i + 1} en limite de quota, bascule sur la suivante.`);
-        continue; // essaie la clé suivante du pool
-      }
-      // Erreur non liée au quota (ou plus aucune clé à essayer) : on arrête.
+      if (isQuotaOrRateLimitError(err) && i < keys.length - 1) continue;
       break;
     }
   }
 
-  console.error('Erreur identification Gemini (toutes clés épuisées) :', lastError);
-  const quotaExhausted = isQuotaOrRateLimitError(lastError);
+  console.error('Erreur identification Gemini :', lastError);
+  const quota = isQuotaOrRateLimitError(lastError);
   return NextResponse.json(
     {
-      error: quotaExhausted
-        ? 'Toutes les clés Gemini configurées ont atteint leur quota gratuit. Réessayez plus tard ou ajoutez une clé supplémentaire.'
-        : lastError?.message || 'Erreur serveur lors de l’identification.',
+      error: quota
+        ? 'Quota Gemini gratuit atteint sur toutes les clés. Réessayez plus tard ou ajoutez une clé.'
+        : lastError?.message || 'Erreur lors de l’identification.',
     },
-    { status: quotaExhausted ? 429 : 500 }
+    { status: quota ? 429 : 500 }
   );
 }

@@ -4,29 +4,123 @@
 
 html,
 body {
-  height: 100%;
+  min-height: 100%;
 }
 
 body {
-  background: linear-gradient(180deg, #f4f6fb 0%, #e9edf7 100%);
+  font-family: Nunito, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: #1b2340;
+  background-color: #eaf0f7;
+  background-image: radial-gradient(circle at 1px 1px, rgba(27, 35, 64, 0.08) 1px, transparent 0);
+  background-size: 18px 18px;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.card-shadow {
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+/* Boutons "console de jeu" : épais, en relief, ils s'enfoncent au toucher */
+@layer components {
+  .btn-chunky {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-xl border-2 border-ink px-3.5 py-2 text-sm font-extrabold text-ink transition-transform;
+    box-shadow: 0 3px 0 #1b2340;
+  }
+  .btn-chunky:active {
+    transform: translateY(3px);
+    box-shadow: 0 0 0 #1b2340;
+  }
+  .btn-chunky:disabled {
+    opacity: 0.5;
+  }
+  .panel {
+    @apply rounded-2xl border-2 border-ink bg-white;
+    box-shadow: 0 4px 0 rgba(27, 35, 64, 0.9);
+  }
 }
 
-@keyframes scan-line {
-  0% {
-    top: 0%;
-  }
-  50% {
-    top: 100%;
-  }
-  100% {
-    top: 0%;
+/* ---------- Effet holographique (uniquement sur les variantes brillantes) ---------- */
+.foil {
+  position: relative;
+  overflow: hidden;
+  border-radius: 7px;
+}
+.foil::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  mix-blend-mode: color-dodge;
+  opacity: 0.6;
+  background-size: 320% 320%;
+  background-position: 100% 0%;
+  transition: background-position 0.9s ease;
+}
+.foil-holo::after {
+  background-image: linear-gradient(
+    115deg,
+    transparent 22%,
+    rgba(255, 110, 200, 0.75) 36%,
+    rgba(110, 220, 255, 0.75) 46%,
+    rgba(255, 240, 110, 0.75) 56%,
+    transparent 70%
+  );
+}
+.foil-reverse::after {
+  background-image: linear-gradient(
+    115deg,
+    transparent 25%,
+    rgba(190, 215, 255, 0.85) 45%,
+    rgba(255, 255, 255, 0.7) 52%,
+    transparent 70%
+  );
+}
+.foil:hover::after,
+.foil:active::after {
+  background-position: 0% 100%;
+}
+.first-ed {
+  box-shadow: 0 0 0 2px #ffcb05, 0 4px 14px rgba(255, 203, 5, 0.5);
+}
+
+/* ---------- Scan ---------- */
+@keyframes wobble {
+  0%, 100% { transform: rotate(0); }
+  15% { transform: rotate(-22deg); }
+  30% { transform: rotate(18deg); }
+  45% { transform: rotate(-12deg); }
+  60% { transform: rotate(8deg); }
+  75% { transform: rotate(0); }
+}
+.wobble {
+  animation: wobble 1.6s ease-in-out infinite;
+  transform-origin: 50% 80%;
+}
+
+@keyframes scanline {
+  0% { top: 4%; }
+  50% { top: 94%; }
+  100% { top: 4%; }
+}
+.scanline {
+  animation: scanline 1.8s ease-in-out infinite;
+}
+
+@keyframes pop {
+  0% { transform: translate(-50%, 16px) scale(0.9); opacity: 0; }
+  100% { transform: translate(-50%, 0) scale(1); opacity: 1; }
+}
+.pop {
+  animation: pop 0.25s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
 
-.scan-line {
-  animation: scan-line 2s ease-in-out infinite;
+:focus-visible {
+  outline: 3px solid #3aa0ff;
+  outline-offset: 2px;
 }
