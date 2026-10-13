@@ -107,7 +107,8 @@ export function buildCardImageUrl(
   return `${card.image}/${quality}.${extension}`;
 }
 
-type Price = { value: number; currency: 'EUR' | 'USD' };
+// approx = prix d'une variante voisine, utilisé faute de prix exact pour celle-ci
+type Price = { value: number; currency: 'EUR' | 'USD'; approx?: boolean };
 
 // Mots-clés associés à chaque variante, pour repérer la bonne clé quelle
 // que soit sa forme exacte (les APIs de prix Pokémon ne sont jamais
@@ -163,12 +164,17 @@ function findVariantPrice(
     }
   }
 
-  // 2) Champs plats préfixés (ex: reverseHoloTrend: 2.5)
-  for (const [key, value] of Object.entries(block)) {
-    if (isVariantKey(key, variant) && typeof value === 'number') {
-      return value;
-    }
-  }
+  // 2) Champs plats (ex: "trend-holo", reverseHoloTrend), le plus représentatif d'abord
+  const RANK = ['trend', 'market', 'avg30', 'avg7', 'avg1', 'avg', 'mid', 'sell', 'low'];
+  const rankOf = (k: string) => {
+    const lk = k.toLowerCase();
+    const i = RANK.findIndex((r) => lk.includes(r));
+    return i === -1 ? 99 : i;
+  };
+  const flat = Object.entries(block)
+    .filter(([key, value]) => isVariantKey(key, variant) && typeof value === 'number')
+    .sort((a, b) => rankOf(a[0]) - rankOf(b[0]));
+  if (flat.length > 0) return flat[0][1] as number;
 
   // 3) Pour la variante normale, retomber sur les champs plats génériques
   if (variant === 'normal') {
@@ -183,7 +189,7 @@ function findVariantPrice(
  * Extrait le prix d'une carte pour une variante précise (normale, reverse,
  * holo, 1ère édition), en essayant Cardmarket (EUR) puis TCGPlayer (USD).
  */
-export function getPriceForVariant(card: PokemonCard, variant: CardVariant): Price | null {
+function strictPrice(card: PokemonCard, variant: CardVariant): Price | null {
   const cardmarketPrice = findVariantPrice(card.pricing?.cardmarket, variant);
   if (cardmarketPrice !== undefined) {
     return { value: cardmarketPrice, currency: 'EUR' };
@@ -197,6 +203,24 @@ export function getPriceForVariant(card: PokemonCard, variant: CardVariant): Pri
   return null;
 }
 
+// Si la variante exacte n'a pas de prix, on prend la plus proche (marquée "approx")
+// plutôt que de ne rien afficher : une cote approximative vaut mieux que « n.c. ».
+const FALLBACK_ORDER: Record<CardVariant, CardVariant[]> = {
+  normal: ['normal', 'reverse', 'holo', 'firstEdition'],
+  reverse: ['reverse', 'holo', 'normal', 'firstEdition'],
+  holo: ['holo', 'reverse', 'firstEdition', 'normal'],
+  firstEdition: ['firstEdition', 'holo', 'normal', 'reverse'],
+};
+
+export function getPriceForVariant(card: PokemonCard, variant: CardVariant): Price | null {
+  const order = FALLBACK_ORDER[variant];
+  for (let i = 0; i < order.length; i++) {
+    const price = strictPrice(card, order[i]);
+    if (price) return i === 0 ? price : { ...price, approx: true };
+  }
+  return null;
+}
+
 /**
  * Prix "représentatif" toutes variantes confondues, utilisé dans les
  * résultats de recherche avant que l'utilisateur n'ait choisi une variante.
@@ -204,7 +228,7 @@ export function getPriceForVariant(card: PokemonCard, variant: CardVariant): Pri
 export function getBestPrice(card: PokemonCard): Price | null {
   const order: CardVariant[] = ['normal', 'reverse', 'holo', 'firstEdition'];
   for (const variant of order) {
-    const price = getPriceForVariant(card, variant);
+    const price = strictPrice(card, variant);
     if (price) return price;
   }
   return null;
@@ -234,4 +258,17 @@ async function fetchWithRetry(url: string, attempts = 2): Promise<Response> {
     }
   }
   return lastRes as Response;
+}
+
+/** Recharge une fiche complète (prix à jour) à partir de son identifiant. */
+export async function fetchCardById(id: string): Promise<PokemonCard | null> {
+  for (const lang of LANGS) {
+    try {
+      const res = await fetchWithRetry(`${BASE_URL}/${lang}/cards/${id}`);
+      if (res.ok) return (await res.json()) as PokemonCard;
+    } catch {
+      /* on tente la langue suivante */
+    }
+  }
+  return null;
 }

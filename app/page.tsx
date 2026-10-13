@@ -11,6 +11,7 @@ import {
   addCardToCollection,
   getCollectionValue,
   loadCollection,
+  refreshCollectionPrices,
   removeOneFromCollection,
 } from './lib/collection';
 
@@ -24,6 +25,7 @@ export default function Home() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [collection, setCollection] = useState<CollectionItem[]>([]);
   const [toast, setToast] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     setCollection(loadCollection());
@@ -92,6 +94,16 @@ export default function Home() {
     if (item) setCollection(addCardToCollection(item.card, item.variant));
   }
 
+  async function handleRefreshPrices() {
+    setRefreshing(true);
+    try {
+      setCollection(await refreshCollectionPrices());
+      setToast('Cotes mises à jour');
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   const totalCards = collection.reduce((n, i) => n + i.quantity, 0);
   const setCount = new Set(collection.map((i) => i.card.set?.id)).size;
   const { eur, usd } = getCollectionValue(collection);
@@ -158,6 +170,13 @@ export default function Home() {
                 </div>
               ))}
             </div>
+            {collection.length > 0 && (
+              <div className="mx-auto mt-3 flex max-w-3xl justify-end">
+                <button onClick={handleRefreshPrices} disabled={refreshing} className="btn-chunky bg-white">
+                  {refreshing ? 'Mise à jour…' : 'Actualiser les cotes'}
+                </button>
+              </div>
+            )}
             <CollectionGrid
               items={collection}
               onAddOne={handleAddOne}

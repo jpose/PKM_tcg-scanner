@@ -80,8 +80,11 @@ export default function CameraCapture({ onCapture, phase }: Props) {
 
   return (
     <div className="mx-auto w-full max-w-sm">
-      {/* Écran du Pokédex */}
-      <div className="rounded-[28px] border-2 border-ink bg-[#C9D1DE] p-3 shadow-[0_5px_0_#1B2340]">
+      {/* Écran du Pokédex : il rétrécit sur les écrans courts pour que les boutons restent visibles */}
+      <div
+        className="mx-auto rounded-[28px] border-2 border-ink bg-[#C9D1DE] p-3 shadow-[0_5px_0_#1B2340]"
+        style={{ width: 'max(12rem, min(100%, 24rem, calc((100svh - 360px) * 0.72)))' }}
+      >
         <div className="relative aspect-[3/4] overflow-hidden rounded-[18px] border-2 border-ink bg-ink">
           <video ref={videoRef} className="h-full w-full object-cover" playsInline muted />
 
@@ -120,30 +123,34 @@ export default function CameraCapture({ onCapture, phase }: Props) {
         </p>
       )}
 
-      {/* Commandes */}
-      <div className="mt-5 grid grid-cols-3 items-center">
-        <label className="btn-chunky cursor-pointer justify-self-start bg-white">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <rect x="3" y="4" width="18" height="16" rx="3" />
-            <circle cx="9" cy="10" r="1.8" />
-            <path d="m21 16-5-5-8 8" />
-          </svg>
-          Photo
-          <input type="file" accept="image/*" className="hidden" onChange={handleFile} disabled={busy} />
-        </label>
-
+      {/* Déclencheur */}
+      <div className="mt-4 flex justify-center">
         <button
           onClick={handleShutter}
           disabled={!ready || busy}
-          aria-label="Scanner la carte"
-          className="justify-self-center rounded-full bg-white p-1 shadow-[0_4px_0_#1B2340] ring-2 ring-ink transition-transform active:translate-y-1 active:shadow-none disabled:opacity-50"
+          aria-label="Scanner la carte avec la caméra"
+          className="rounded-full bg-white p-1 shadow-[0_4px_0_#1B2340] ring-2 ring-ink transition-transform active:translate-y-1 active:shadow-none disabled:opacity-50"
         >
-          <Pokeball size={68} />
+          <Pokeball size={64} />
         </button>
-        <span />
       </div>
-      <p className="mt-4 text-center text-sm font-semibold text-ink/70">
-        Posez la carte à plat, bien éclairée, et remplissez le cadre.
+
+      {/* Import : bouton pleine largeur, toujours visible sous le déclencheur */}
+      <label
+        className={`btn-chunky mt-4 flex w-full cursor-pointer ${error ? 'bg-pika' : 'bg-white'} ${
+          busy ? 'pointer-events-none opacity-50' : ''
+        }`}
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="16" rx="3" />
+          <circle cx="9" cy="10" r="1.8" />
+          <path d="m21 16-5-5-8 8" />
+        </svg>
+        Importer une photo
+        <input type="file" accept="image/*" className="hidden" onChange={handleFile} disabled={busy} />
+      </label>
+      <p className="mt-3 text-center text-xs font-semibold text-ink/65">
+        Carte à plat, bien éclairée, sans reflet.
       </p>
     </div>
   );

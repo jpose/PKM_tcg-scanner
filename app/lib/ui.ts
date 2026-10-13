@@ -22,14 +22,15 @@ export function typeStyle(type?: string): { bg: string; fg: string } {
 }
 
 export function formatPrice(
-  price: { value: number; currency: 'EUR' | 'USD' } | null
+  price: { value: number; currency: 'EUR' | 'USD'; approx?: boolean } | null
 ): string | null {
   if (!price) return null;
   const n = price.value.toLocaleString('fr-FR', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
-  return price.currency === 'EUR' ? `${n} €` : `${n} $`;
+  const text = price.currency === 'EUR' ? `${n} €` : `${n} $`;
+  return price.approx ? `≈ ${text}` : text;
 }
 
 // L'effet holographique n'apparaît que sur les variantes qui brillent

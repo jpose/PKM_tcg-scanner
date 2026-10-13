@@ -1,5 +1,5 @@
 import { CardVariant, CollectionItem, PokemonCard } from '../types';
-import { getPriceForVariant } from './pokemonTcg';
+import { fetchCardById, getPriceForVariant } from './pokemonTcg';
 
 const STORAGE_KEY = 'pokescan_collection_v2';
 const LEGACY_STORAGE_KEY = 'pokescan_collection_v1';
@@ -95,4 +95,32 @@ export function getCollectionValue(items: CollectionItem[]): { eur: number; usd:
     },
     { eur: 0, usd: 0 }
   );
+}
+
+/**
+ * Les cartes du classeur sont des copies enregistrées au moment du scan : leur
+ * cote vieillit. Cette fonction recharge les prix actuels (par lots de 6).
+ */
+export async function refreshCollectionPrices(): Promise<CollectionItem[]> {
+  const items = loadCollection();
+  const ids = Array.from(new Set(items.map((i) => i.card.id)));
+  const fresh = new Map<string, PokemonCard>();
+
+  for (let i = 0; i < ids.length; i += 6) {
+    await Promise.all(
+      ids.slice(i, i + 6).map(async (id) => {
+        const card = await fetchCardById(id);
+        if (card) fresh.set(id, card);
+      })
+    );
+  }
+
+  const next = items.map((item) => {
+    const f = fresh.get(item.card.id);
+    return f
+      ? { ...item, card: { ...item.card, pricing: f.pricing, variants: f.variants ?? item.card.variants } }
+      : item;
+  });
+  saveCollection(next);
+  return next;
 }
