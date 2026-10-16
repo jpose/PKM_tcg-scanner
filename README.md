@@ -57,6 +57,30 @@ réponse JSON courte et raisonnement Gemini désactivé (`thinkingLevel: minimal
 fonction serveur placée à Paris. Si Google retire un jour le modèle, changez
 simplement la variable `GEMINI_MODEL` sur Vercel (ex. `gemini-3.6-flash`).
 
+## Protéger l'application et votre quota Gemini
+
+Sans protection, n'importe qui connaissant l'adresse peut utiliser vos clés
+Gemini gratuites. Sur Vercel (Settings → Environment Variables), ajoutez :
+
+| Variable | Rôle |
+|---|---|
+| `ACCESS_CODE` | **Verrouille toute l'application** : une page demande le code avant d'afficher quoi que ce soit (cookie de 30 jours). Choisissez une phrase longue, pas 4 chiffres. Changer la valeur déconnecte tout le monde. |
+| `RATE_LIMIT_PER_MINUTE` | Scans max par minute et par appareil (défaut 8) |
+| `RATE_LIMIT_PER_IP_PER_DAY` | Scans max par jour et par appareil (défaut 150) |
+| `MAX_SCANS_PER_DAY` | Plafond global par jour pour toute l'app (défaut 600) |
+
+Sans `ACCESS_CODE`, l'application reste ouverte. Redéployez après chaque changement.
+
+Les compteurs sont gardés en mémoire (approximatif, car Vercel peut lancer
+plusieurs instances). Pour des limites exactes, créez une base Redis gratuite
+sur upstash.com et ajoutez `UPSTASH_REDIS_REST_URL` et `UPSTASH_REDIS_REST_TOKEN`.
+
+## Sauvegarde du classeur
+
+Le classeur est stocké dans le navigateur. Dans l'onglet Classeur, « Sauvegarder
+(JSON) » télécharge un fichier restaurable avec « Importer une sauvegarde »
+(l'import fusionne sans créer de doublon). « Exporter pour Excel » produit un CSV.
+
 ## 2. Lancer en local (facultatif, pour tester avant de déployer)
 
 ```bash

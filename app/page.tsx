@@ -5,10 +5,12 @@ import CameraCapture, { ScanPhase } from './components/CameraCapture';
 import CardResults from './components/CardResults';
 import CollectionGrid from './components/CollectionGrid';
 import Pokeball from './components/Pokeball';
+import BackupPanel from './components/BackupPanel';
 import { CardVariant, CollectionItem, PokemonCard } from './types';
 import { searchPokemonCards } from './lib/pokemonTcg';
 import {
   addCardToCollection,
+  deleteFromCollection,
   getCollectionValue,
   loadCollection,
   refreshCollectionPrices,
@@ -50,6 +52,10 @@ export default function Home() {
       });
       const data = await res.json().catch(() => ({}));
 
+      if (res.status === 401) {
+        window.location.href = '/acces'; // session expirée ou code modifié
+        return;
+      }
       if (!res.ok) {
         setErrorMsg(data.error || 'Lecture impossible. Réessayez avec une photo plus nette.');
         return;
@@ -181,8 +187,10 @@ export default function Home() {
               items={collection}
               onAddOne={handleAddOne}
               onRemoveOne={(id) => setCollection(removeOneFromCollection(id))}
+              onDelete={(id) => setCollection(deleteFromCollection(id))}
               onScan={() => setTab('scan')}
             />
+            <BackupPanel items={collection} onChange={setCollection} />
           </>
         )}
       </main>

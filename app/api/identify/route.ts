@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getKeysRoundRobinOrder, isQuotaOrRateLimitError } from '../../lib/geminiKeyPool';
+import { checkRequest } from '../../lib/guard';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
@@ -82,6 +83,19 @@ async function identifyWithKey(apiKey: string, imageBase64: string, mimeType: st
 
 export async function POST(req: NextRequest) {
   const started = Date.now();
+
+  // Protection du quota : code d'accès, limites par appareil, plafond global.
+  const guard = await checkRequest(req);
+  if (!guard.ok) {
+    return NextResponse.json(
+      { error: guard.error, code: guard.code, retryAfter: guard.retryAfter },
+      {
+        status: guard.status,
+        headers: guard.retryAfter ? { 'Retry-After': String(guard.retryAfter) } : undefined,
+      }
+    );
+  }
+
   const keys = getKeysRoundRobinOrder();
 
   if (keys.length === 0) {
@@ -100,6 +114,9 @@ export async function POST(req: NextRequest) {
   }
   if (!imageBase64) {
     return NextResponse.json({ error: 'Aucune image reçue.' }, { status: 400 });
+  }
+  if (imageBase64.length > 1_400_000) {
+    return NextResponse.json({ error: 'Image trop lourde.' }, { status: 413 });
   }
 
   let lastError: any = null;

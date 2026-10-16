@@ -6,11 +6,13 @@ import { CollectionItem, VARIANT_LABELS } from '../types';
 import { buildCardImageUrl, getPriceForVariant } from '../lib/pokemonTcg';
 import { foilClass, formatPrice } from '../lib/ui';
 import Pokeball from './Pokeball';
+import CardDetail from './CardDetail';
 
 interface Props {
   items: CollectionItem[];
   onAddOne: (itemId: string) => void;
   onRemoveOne: (itemId: string) => void;
+  onDelete: (itemId: string) => void;
   onScan: () => void;
 }
 
@@ -36,7 +38,9 @@ function sortItems(items: CollectionItem[], mode: SortMode): CollectionItem[] {
   }
 }
 
-export default function CollectionGrid({ items, onAddOne, onRemoveOne, onScan }: Props) {
+export default function CollectionGrid({ items, onAddOne, onRemoveOne, onDelete, onScan }: Props) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = items.find((i) => i.id === selectedId) ?? null;
   const [query, setQuery] = useState('');
   const [sortMode, setSortMode] = useState<SortMode>('number');
   const [groupBySet, setGroupBySet] = useState(true);
@@ -130,7 +134,12 @@ export default function CollectionGrid({ items, onAddOne, onRemoveOne, onScan }:
                 const price = formatPrice(getPriceForVariant(item.card, item.variant));
                 return (
                   <li key={item.id} className="min-w-0">
-                    <div className={`relative ${foilClass(item.variant)}`}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(item.id)}
+                      aria-label={`Voir la fiche de ${item.card.name}`}
+                      className={`relative block w-full text-left ${foilClass(item.variant)}`}
+                    >
                       {img && (
                         <Image
                           src={img}
@@ -146,7 +155,7 @@ export default function CollectionGrid({ items, onAddOne, onRemoveOne, onScan }:
                           ×{item.quantity}
                         </span>
                       )}
-                    </div>
+                    </button>
 
                     <p className="mt-1.5 truncate text-[13px] font-extrabold leading-tight">{item.card.name}</p>
                     <div className="mt-0.5 flex items-center justify-between gap-1">
@@ -184,6 +193,16 @@ export default function CollectionGrid({ items, onAddOne, onRemoveOne, onScan }:
             </ul>
           </section>
         ))
+      )}
+
+      {selected && (
+        <CardDetail
+          item={selected}
+          onClose={() => setSelectedId(null)}
+          onAddOne={onAddOne}
+          onRemoveOne={onRemoveOne}
+          onDelete={onDelete}
+        />
       )}
     </div>
   );

@@ -124,3 +124,32 @@ export async function refreshCollectionPrices(): Promise<CollectionItem[]> {
   saveCollection(next);
   return next;
 }
+
+/**
+ * Fusionne une sauvegarde dans le classeur sans jamais créer de doublon :
+ * une carte déjà présente garde la plus grande des deux quantités.
+ * Réimporter deux fois le même fichier ne change donc rien.
+ */
+export function mergeIntoCollection(imported: CollectionItem[]): {
+  items: CollectionItem[];
+  added: number;
+  updated: number;
+} {
+  const map = new Map(loadCollection().map((i) => [itemKey(i.card.id, i.variant), i]));
+  let added = 0;
+  let updated = 0;
+  for (const inc of imported) {
+    const key = itemKey(inc.card.id, inc.variant);
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, inc);
+      added++;
+    } else if (inc.quantity > existing.quantity) {
+      map.set(key, { ...existing, quantity: inc.quantity });
+      updated++;
+    }
+  }
+  const items = Array.from(map.values()).sort((a, b) => b.addedAt - a.addedAt);
+  saveCollection(items);
+  return { items, added, updated };
+}
