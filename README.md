@@ -90,9 +90,9 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Ouvrez http://localhost:3000 — utilisez le bouton "importer une photo" si
-votre ordinateur n'a pas de caméra pratique, ou testez directement depuis un
-téléphone sur le même réseau.
+Ouvrez http://localhost:3000 — sur un ordinateur sans caméra pratique, utilisez
+« Chercher par nom et numéro » : tapez le nom de la carte, son numéro (ex. 136/189),
+puis choisissez l'édition grâce à son logo.
 
 ## 3. Héberger sur GitHub
 

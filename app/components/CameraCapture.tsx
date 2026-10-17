@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { CAPTURE_MAX_SIDE, CAPTURE_QUALITY, fileToResizedBase64 } from '../lib/imageResize';
+import { CAPTURE_MAX_SIDE, CAPTURE_QUALITY } from '../lib/imageResize';
 import Pokeball from './Pokeball';
 
 export type ScanPhase = 'idle' | 'reading' | 'searching';
@@ -9,6 +9,7 @@ export type ScanPhase = 'idle' | 'reading' | 'searching';
 interface Props {
   onCapture: (base64: string, mimeType: string) => void;
   phase: ScanPhase;
+  onManual: () => void;
 }
 
 const PHASE_LABEL: Record<Exclude<ScanPhase, 'idle'>, string> = {
@@ -16,7 +17,7 @@ const PHASE_LABEL: Record<Exclude<ScanPhase, 'idle'>, string> = {
   searching: 'Recherche dans le Pokédex…',
 };
 
-export default function CameraCapture({ onCapture, phase }: Props) {
+export default function CameraCapture({ onCapture, phase, onManual }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -43,7 +44,7 @@ export default function CameraCapture({ onCapture, phase }: Props) {
           setReady(true);
         }
       } catch {
-        setError('Caméra indisponible. Autorisez-la dans votre navigateur ou importez une photo.');
+        setError('Caméra indisponible. Autorisez-la dans votre navigateur, ou cherchez la carte par son nom.');
       }
     })();
     return () => {
@@ -62,18 +63,6 @@ export default function CameraCapture({ onCapture, phase }: Props) {
     canvas.height = Math.round(video.videoHeight * scale);
     canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height);
     onCapture(canvas.toDataURL('image/jpeg', CAPTURE_QUALITY).split(',')[1], 'image/jpeg');
-  }
-
-  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    try {
-      const { base64, mimeType } = await fileToResizedBase64(file);
-      onCapture(base64, mimeType);
-    } catch {
-      setError('Impossible de lire cette image. Essayez un autre fichier.');
-    }
   }
 
   const corner = 'absolute h-7 w-7 border-white';
@@ -135,20 +124,18 @@ export default function CameraCapture({ onCapture, phase }: Props) {
         </button>
       </div>
 
-      {/* Import : bouton pleine largeur, toujours visible sous le déclencheur */}
-      <label
-        className={`btn-chunky mt-4 flex w-full cursor-pointer ${error ? 'bg-pika' : 'bg-white'} ${
-          busy ? 'pointer-events-none opacity-50' : ''
-        }`}
+      {/* Recherche manuelle : l'alternative à la caméra, toujours visible sous le déclencheur */}
+      <button
+        onClick={onManual}
+        disabled={busy}
+        className={`btn-chunky mt-4 flex w-full ${error ? 'bg-pika' : 'bg-white'}`}
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <rect x="3" y="4" width="18" height="16" rx="3" />
-          <circle cx="9" cy="10" r="1.8" />
-          <path d="m21 16-5-5-8 8" />
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-3.5-3.5" />
         </svg>
-        Importer une photo
-        <input type="file" accept="image/*" className="hidden" onChange={handleFile} disabled={busy} />
-      </label>
+        Chercher par nom et numéro
+      </button>
       <p className="mt-3 text-center text-xs font-semibold text-ink/65">
         Carte à plat, bien éclairée, sans reflet.
       </p>

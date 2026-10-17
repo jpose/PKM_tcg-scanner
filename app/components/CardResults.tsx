@@ -12,13 +12,16 @@ interface Props {
   identified: { name: string; cardNumber: string | null } | null;
   onAdd: (card: PokemonCard, variant: CardVariant) => void;
   onDismiss: () => void;
+  manual?: boolean;
 }
 
-export default function CardResults({ cards, identified, onAdd, onDismiss }: Props) {
+export default function CardResults({ cards, identified, onAdd, onDismiss, manual = false }: Props) {
   const [picking, setPicking] = useState<string | null>(null);
   // Cartes issues d'une correction manuelle : elles remplacent celles du scan.
   const [override, setOverride] = useState<PokemonCard[] | null>(null);
   const shown = override ?? cards;
+  // En recherche manuelle, on n'affiche « introuvable » qu'après une vraie recherche.
+  const searched = !manual || override !== null;
 
   function handleAdd(card: PokemonCard) {
     const variants = getAvailableVariants(card);
@@ -30,7 +33,9 @@ export default function CardResults({ cards, identified, onAdd, onDismiss }: Pro
     <section className="mx-auto mt-6 w-full max-w-sm" aria-label="Cartes trouvées">
       <div className="mb-2 flex items-end justify-between gap-3 px-1">
         <div className="min-w-0">
-          {identified && (
+          {manual ? (
+            <p className="font-display text-lg leading-tight">Recherche manuelle</p>
+          ) : identified && (
             <>
               <p className="text-xs font-bold text-ink/60">Carte lue</p>
               <p className="truncate font-display text-lg leading-tight">
@@ -43,20 +48,24 @@ export default function CardResults({ cards, identified, onAdd, onDismiss }: Pro
           )}
         </div>
         <button onClick={onDismiss} className="shrink-0 text-sm font-extrabold text-ink/60 underline">
-          Fermer
+          {manual ? 'Retour au scan' : 'Fermer'}
         </button>
       </div>
 
       {shown.length === 0 ? (
+        !searched ? null : (
         <div className="panel p-5 text-center">
           <p className="font-display text-lg">Carte introuvable</p>
           <p className="mt-1 text-sm font-semibold text-ink/70">
-            {identified
+            {manual
+              ? 'Aucune carte trouvée pour cette recherche.'
+              : identified
               ? `J’ai lu « ${identified.name} » mais rien ne correspond dans la base.`
               : 'Je n’ai pas reconnu de carte Pokémon sur cette image.'}{' '}
-            Saisissez le nom et le numéro ci-dessous.
+            Modifiez le nom ou le numéro ci-dessous.
           </p>
         </div>
+        )
       ) : (
         <ul className="space-y-3">
           {shown.slice(0, 8).map((card, index) => {
@@ -135,7 +144,7 @@ export default function CardResults({ cards, identified, onAdd, onDismiss }: Pro
       <CardCorrection
         initialName={identified?.name ?? ''}
         initialNumber={identified?.cardNumber ?? ''}
-        defaultOpen={cards.length === 0}
+        defaultOpen={manual || cards.length === 0}
         onCards={(c) => {
           setPicking(null);
           setOverride(c);

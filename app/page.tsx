@@ -22,6 +22,7 @@ type Tab = 'scan' | 'collection';
 export default function Home() {
   const [tab, setTab] = useState<Tab>('scan');
   const [phase, setPhase] = useState<ScanPhase>('idle');
+  const [manualMode, setManualMode] = useState(false);
   const [results, setResults] = useState<PokemonCard[] | null>(null);
   const [identified, setIdentified] = useState<{ name: string; cardNumber: string | null } | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -40,6 +41,7 @@ export default function Home() {
   }, [toast]);
 
   async function handleCapture(base64: string, mimeType: string) {
+    setManualMode(false);
     setPhase('reading');
     setErrorMsg(null);
     setResults(null);
@@ -91,8 +93,18 @@ export default function Home() {
   function handleAdd(card: PokemonCard, variant: CardVariant) {
     setCollection(addCardToCollection(card, variant));
     setToast(`${card.name} ajoutée au classeur`);
-    setResults(null);
+    // En recherche manuelle on reste sur la liste, pour enchaîner plusieurs ajouts.
+    if (!manualMode) {
+      setResults(null);
+      setIdentified(null);
+    }
+  }
+
+  function startManualSearch() {
+    setErrorMsg(null);
     setIdentified(null);
+    setResults([]);
+    setManualMode(true);
   }
 
   function handleAddOne(itemId: string) {
@@ -142,20 +154,23 @@ export default function Home() {
       <main className="px-4 pt-6">
         {tab === 'scan' && (
           <>
-            <CameraCapture onCapture={handleCapture} phase={phase} />
-            {errorMsg && (
+            {!manualMode && <CameraCapture onCapture={handleCapture} phase={phase} onManual={startManualSearch} />}
+            {errorMsg && !manualMode && (
               <p role="alert" className="mx-auto mt-5 max-w-sm rounded-xl border-2 border-dex bg-white px-3 py-2 text-center text-sm font-bold text-dex-deep">
                 {errorMsg}
               </p>
             )}
             {results && (
               <CardResults
+                key={manualMode ? 'manual' : 'scan'}
+                manual={manualMode}
                 cards={results}
                 identified={identified}
                 onAdd={handleAdd}
                 onDismiss={() => {
                   setResults(null);
                   setIdentified(null);
+                  setManualMode(false);
                 }}
               />
             )}

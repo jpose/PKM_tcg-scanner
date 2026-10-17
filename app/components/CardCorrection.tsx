@@ -68,11 +68,17 @@ export default function CardCorrection({ initialName, initialNumber, defaultOpen
 
   return (
     <form onSubmit={search} className="panel mt-4 p-3">
-      <p className="font-display text-sm">Corriger la recherche</p>
+      <p className="font-display text-sm">{initialName ? 'Corriger la recherche' : 'Rechercher une carte'}</p>
       <div className="mt-2 grid grid-cols-[1fr_7rem] gap-2">
         <label>
           <span className="text-xs font-extrabold text-ink/60">Nom de la carte</span>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="ex. Roucarnage" className={input} />
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="ex. Roucarnage"
+            autoFocus={defaultOpen && !initialName}
+            className={input}
+          />
         </label>
         <label>
           <span className="text-xs font-extrabold text-ink/60">N° sur la carte</span>
