@@ -15,7 +15,7 @@ const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODE
 // Prompt court = moins de tokens en entrée, réponse plus rapide.
 const PROMPT =
   'Carte Pokémon (JCC). Lis le texte imprimé et réponds en JSON avec exactement ces clés : ' +
-  '"name" (nom exact de la carte tel qu\'imprimé), "cardNumber" (ex "4/102", sinon null), ' +
+  '"name" (nom exact de la carte tel qu\'imprimé), "cardNumber" (numéro imprimé en bas de la carte, format "n/total", ex "136/189", sinon null), ' +
   '"setName" (extension si lisible, sinon null), "rarity" (sinon null). ' +
   'Si l\'image n\'est pas une carte Pokémon : {"name": null}.';
 

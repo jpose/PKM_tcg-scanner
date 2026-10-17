@@ -6,7 +6,7 @@ import { CardVariant, PokemonCard } from '../types';
 const BASE_URL = 'https://api.tcgdex.net/v2';
 const LANG = 'fr';
 
-interface CardBrief {
+export interface CardBrief {
   id: string;
   localId: string;
   name: string;
@@ -16,14 +16,83 @@ interface CardBrief {
 const LANGS = ['fr', 'en'] as const;
 const detailCache = new Map<string, PokemonCard>();
 
+export interface SetBrief {
+  id: string;
+  name: string;
+  logo?: string;
+  symbol?: string;
+  // official = total imprimé sur la carte (ex. 189 pour « 136/189 »)
+  cardCount?: { total?: number; official?: number };
+}
+export type EditionOption = SetBrief & { briefs: CardBrief[] };
+
+// Liste des éditions, chargée une seule fois par session. L'API la renvoie
+// triée par date de sortie : on en garde l'ordre (Map conserve l'insertion).
+const setsCache = new Map<string, Promise<Map<string, SetBrief>>>();
+function fetchSets(lang: string): Promise<Map<string, SetBrief>> {
+  let promise = setsCache.get(lang);
+  if (!promise) {
+    promise = (async () => {
+      const res = await fetchWithRetry(`${BASE_URL}/${lang}/sets`);
+      if (!res.ok) throw new Error(`Erreur API Pokémon TCG (${res.status})`);
+      const list: SetBrief[] = await res.json();
+      return new Map(list.map((set) => [set.id, set] as [string, SetBrief]));
+    })();
+    promise.catch(() => setsCache.delete(lang)); // on retentera au prochain scan
+    setsCache.set(lang, promise);
+  }
+  return promise;
+}
+const safeSets = (lang: string) => fetchSets(lang).catch(() => new Map<string, SetBrief>());
+
+// L'identifiant d'une carte est « <édition>-<numéro> », ex. "swsh3-136".
+const setIdOf = (cardId: string) => cardId.slice(0, cardId.lastIndexOf('-'));
+
 // "004/102" et "4" désignent la même carte : on neutralise les zéros initiaux.
-function normalizeNumber(n?: string | null): string {
+export function normalizeNumber(n?: string | null): string {
   return (n ?? '').split('/')[0].trim().replace(/^0+(?=\d)/, '').toLowerCase();
 }
 
+// "136/189" → numéro 136 et total imprimé 189 (qui identifie l'édition).
+function parseCardNumber(raw?: string | null): { num: string; total: number | null } {
+  const total = Number((raw ?? '').split('/')[1]?.replace(/\D/g, '') ?? '');
+  return { num: normalizeNumber(raw), total: total > 0 ? total : null };
+}
+
+async function listBriefs(lang: string, name: string): Promise<CardBrief[]> {
+  const url = new URL(`${BASE_URL}/${lang}/cards`);
+  url.searchParams.set('name', name);
+  const res = await fetchWithRetry(url.toString());
+  if (!res.ok) throw new Error(`Erreur API Pokémon TCG (${res.status})`);
+  const list = await res.json();
+  return Array.isArray(list) ? list : [];
+}
+
+/** Charge les fiches complètes (prix, variantes…) en parallèle, avec cache. */
+export async function loadDetails(lang: string, briefs: CardBrief[], limit = 12): Promise<PokemonCard[]> {
+  const details = await Promise.all(
+    briefs.slice(0, limit).map(async (brief) => {
+      const key = `${lang}:${brief.id}`;
+      const cached = detailCache.get(key);
+      if (cached) return cached;
+      try {
+        const res = await fetchWithRetry(`${BASE_URL}/${lang}/cards/${brief.id}`);
+        if (!res.ok) return null;
+        const card = (await res.json()) as PokemonCard;
+        detailCache.set(key, card);
+        return card;
+      } catch {
+        return null;
+      }
+    })
+  );
+  return details.filter((c): c is PokemonCard => c !== null);
+}
+
 /**
- * Recherche des cartes par nom (base française, puis anglaise si rien
- * n'est trouvé), puis récupère le détail complet des meilleurs candidats.
+ * Recherche automatique après scan. Les candidats sont classés avec trois
+ * indices : le numéro lu, le total imprimé (qui désigne l'édition) et le nom
+ * d'extension éventuellement lu. Le total est le plus discriminant.
  */
 export async function searchPokemonCards(params: {
   name: string;
@@ -41,57 +110,77 @@ async function searchInLang(
   lang: string,
   params: { name: string; cardNumber?: string | null; setName?: string | null }
 ): Promise<PokemonCard[]> {
-  const { name, cardNumber, setName } = params;
+  const [briefs, sets] = await Promise.all([listBriefs(lang, params.name), safeSets(lang)]);
+  if (briefs.length === 0) return [];
 
-  const listUrl = new URL(`${BASE_URL}/${lang}/cards`);
-  listUrl.searchParams.set('name', name);
+  const { num, total } = parseCardNumber(params.cardNumber);
+  const setLower = params.setName?.trim().toLowerCase();
 
-  const listRes = await fetchWithRetry(listUrl.toString());
-  if (!listRes.ok) {
-    throw new Error(`Erreur API Pokémon TCG (${listRes.status})`);
-  }
-  const briefs: CardBrief[] = await listRes.json();
-  if (!Array.isArray(briefs) || briefs.length === 0) return [];
+  const score = (b: CardBrief): number => {
+    const set = sets.get(setIdOf(b.id));
+    let points = 0;
+    if (num && normalizeNumber(b.localId) === num) points += 2;
+    if (total && set?.cardCount?.official === total) points += 3;
+    if (setLower && set?.name?.toLowerCase().includes(setLower)) points += 1;
+    return points;
+  };
 
-  const num = normalizeNumber(cardNumber);
-  let ranked = briefs;
-  if (num) {
-    ranked = [...briefs].sort(
-      (a, b) =>
-        Number(normalizeNumber(b.localId) === num) - Number(normalizeNumber(a.localId) === num)
-    );
-  }
+  const ranked = briefs
+    .map((b) => ({ b, s: score(b) }))
+    .sort((x, y) => y.s - x.s)
+    .map((x) => x.b);
 
-  // Détails en parallèle, avec cache : un second scan de la même carte est instantané.
-  const details = await Promise.all(
-    ranked.slice(0, 6).map(async (brief) => {
-      const key = `${lang}:${brief.id}`;
-      const cached = detailCache.get(key);
-      if (cached) return cached;
-      try {
-        const res = await fetchWithRetry(`${BASE_URL}/${lang}/cards/${brief.id}`);
-        if (!res.ok) return null;
-        const card = (await res.json()) as PokemonCard;
-        detailCache.set(key, card);
-        return card;
-      } catch {
-        return null;
+  return loadDetails(lang, ranked, 6);
+}
+
+/**
+ * Correction manuelle : liste les éditions où existe une carte de ce nom, avec
+ * leur logo. Si un numéro est saisi, seules les éditions où la carte porte ce
+ * numéro sont proposées (exact = true).
+ */
+export async function findEditions(
+  name: string,
+  numberInput: string
+): Promise<{ lang: string; editions: EditionOption[]; exact: boolean }> {
+  const { num, total } = parseCardNumber(numberInput);
+
+  for (const lang of LANGS) {
+    const [briefs, sets] = await Promise.all([listBriefs(lang, name), safeSets(lang)]);
+    if (briefs.length === 0) continue;
+
+    const order = Array.from(sets.keys());
+    const bySet = new Map<string, CardBrief[]>();
+    for (const b of briefs) {
+      const id = setIdOf(b.id);
+      if (!bySet.has(id)) bySet.set(id, []);
+      bySet.get(id)!.push(b);
+    }
+
+    let editions: EditionOption[] = Array.from(bySet.entries()).map(([id, list]) => ({
+      ...(sets.get(id) ?? { id, name: id }),
+      briefs: list,
+    }));
+
+    let exact = false;
+    if (num) {
+      const matching = editions
+        .map((e) => ({ ...e, briefs: e.briefs.filter((b) => normalizeNumber(b.localId) === num) }))
+        .filter((e) => e.briefs.length > 0);
+      if (matching.length > 0) {
+        editions = matching;
+        exact = true;
       }
-    })
-  );
+    }
 
-  let cards = details.filter((c): c is PokemonCard => c !== null);
-
-  if (setName) {
-    const setLower = setName.toLowerCase();
-    cards = [...cards].sort(
+    // Le total imprimé d'abord, puis les éditions les plus récentes.
+    editions.sort(
       (a, b) =>
-        Number(!!b.set?.name?.toLowerCase().includes(setLower)) -
-        Number(!!a.set?.name?.toLowerCase().includes(setLower))
+        Number(!!total && b.cardCount?.official === total) - Number(!!total && a.cardCount?.official === total) ||
+        order.indexOf(b.id) - order.indexOf(a.id)
     );
+    return { lang, editions, exact };
   }
-
-  return cards;
+  return { lang: 'fr', editions: [], exact: false };
 }
 
 /**
