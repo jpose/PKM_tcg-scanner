@@ -156,9 +156,15 @@ export default function Home() {
           <>
             {!manualMode && <CameraCapture onCapture={handleCapture} phase={phase} onManual={startManualSearch} />}
             {errorMsg && !manualMode && (
-              <p role="alert" className="mx-auto mt-5 max-w-sm rounded-xl border-2 border-dex bg-white px-3 py-2 text-center text-sm font-bold text-dex-deep">
-                {errorMsg}
-              </p>
+              <div role="alert" className="mx-auto mt-5 max-w-sm rounded-xl border-2 border-dex bg-white px-3 py-3 text-center">
+                <p className="text-sm font-bold text-dex-deep">{errorMsg}</p>
+                <p className="mt-1 text-xs font-semibold text-ink/65">
+                  La recherche par nom et numéro fonctionne sans limite, même quand le scan est indisponible.
+                </p>
+                <button onClick={startManualSearch} className="btn-chunky mt-3 bg-pika">
+                  Chercher par nom et numéro
+                </button>
+              </div>
             )}
             {results && (
               <CardResults

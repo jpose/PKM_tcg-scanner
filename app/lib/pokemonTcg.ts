@@ -59,13 +59,26 @@ function parseCardNumber(raw?: string | null): { num: string; total: number | nu
   return { num: normalizeNumber(raw), total: total > 0 ? total : null };
 }
 
-async function listBriefs(lang: string, name: string): Promise<CardBrief[]> {
+async function fetchBriefs(lang: string, name: string): Promise<CardBrief[]> {
   const url = new URL(`${BASE_URL}/${lang}/cards`);
   url.searchParams.set('name', name);
   const res = await fetchWithRetry(url.toString());
   if (!res.ok) throw new Error(`Erreur API Pokémon TCG (${res.status})`);
   const list = await res.json();
   return Array.isArray(list) ? list : [];
+}
+
+// Une recherche déjà faite (même nom, même langue) n'est pas redemandée à l'API.
+const briefsCache = new Map<string, Promise<CardBrief[]>>();
+function listBriefs(lang: string, name: string): Promise<CardBrief[]> {
+  const key = `${lang}:${name.trim().toLowerCase()}`;
+  let promise = briefsCache.get(key);
+  if (!promise) {
+    promise = fetchBriefs(lang, name);
+    promise.catch(() => briefsCache.delete(key)); // un échec n'est pas mémorisé
+    briefsCache.set(key, promise);
+  }
+  return promise;
 }
 
 /** Charge les fiches complètes (prix, variantes…) en parallèle, avec cache. */
