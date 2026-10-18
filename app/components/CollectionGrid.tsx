@@ -1,9 +1,9 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import Image from 'next/image';
 import { CollectionItem, VARIANT_LABELS } from '../types';
-import { buildCardImageUrl, getPriceForVariant } from '../lib/pokemonTcg';
+import { getItemPrice } from '../lib/collection';
+import CardImage from './CardImage';
 import { foilClass, formatPrice } from '../lib/ui';
 import Pokeball from './Pokeball';
 import CardDetail from './CardDetail';
@@ -13,13 +13,14 @@ interface Props {
   onAddOne: (itemId: string) => void;
   onRemoveOne: (itemId: string) => void;
   onDelete: (itemId: string) => void;
+  onSetPrice: (itemId: string, value: number | null) => void;
   onScan: () => void;
 }
 
 type SortMode = 'number' | 'name' | 'value' | 'recent';
 
 const norm = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-const unitValue = (i: CollectionItem) => getPriceForVariant(i.card, i.variant)?.value ?? 0;
+const unitValue = (i: CollectionItem) => getItemPrice(i)?.value ?? 0;
 
 function sortItems(items: CollectionItem[], mode: SortMode): CollectionItem[] {
   const list = [...items];
@@ -38,7 +39,7 @@ function sortItems(items: CollectionItem[], mode: SortMode): CollectionItem[] {
   }
 }
 
-export default function CollectionGrid({ items, onAddOne, onRemoveOne, onDelete, onScan }: Props) {
+export default function CollectionGrid({ items, onAddOne, onRemoveOne, onDelete, onSetPrice, onScan }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = items.find((i) => i.id === selectedId) ?? null;
   const [query, setQuery] = useState('');
@@ -130,8 +131,8 @@ export default function CollectionGrid({ items, onAddOne, onRemoveOne, onDelete,
             )}
             <ul className="grid grid-cols-3 gap-x-2.5 gap-y-5 sm:grid-cols-4">
               {group.items.map((item) => {
-                const img = buildCardImageUrl(item.card, 'low', 'webp');
-                const price = formatPrice(getPriceForVariant(item.card, item.variant));
+                const itemPrice = getItemPrice(item);
+                const price = formatPrice(itemPrice);
                 return (
                   <li key={item.id} className="min-w-0">
                     <button
@@ -140,16 +141,7 @@ export default function CollectionGrid({ items, onAddOne, onRemoveOne, onDelete,
                       aria-label={`Voir la fiche de ${item.card.name}`}
                       className={`relative block w-full text-left ${foilClass(item.variant)}`}
                     >
-                      {img && (
-                        <Image
-                          src={img}
-                          alt={`${item.card.name}, ${item.card.set?.name ?? ''}`}
-                          width={245}
-                          height={342}
-                          unoptimized
-                          className="h-auto w-full rounded-[7px] shadow-[0_3px_8px_rgba(27,35,64,0.35)]"
-                        />
-                      )}
+                      <CardImage card={item.card} className="shadow-[0_3px_8px_rgba(27,35,64,0.35)]" />
                       {item.quantity > 1 && (
                         <span className="absolute right-1 top-1 z-10 rounded-full border-2 border-ink bg-pika px-1.5 text-[11px] font-extrabold">
                           ×{item.quantity}
@@ -164,7 +156,12 @@ export default function CollectionGrid({ items, onAddOne, onRemoveOne, onDelete,
                         {item.variant !== 'normal' && ` · ${VARIANT_LABELS[item.variant]}`}
                       </span>
                     </div>
-                    <p className="mt-1 inline-block rounded-md bg-ink px-1.5 py-0.5 font-display text-[12px] text-white">
+                    <p
+                      title={itemPrice?.manual ? 'Cote saisie par vous' : undefined}
+                      className={`mt-1 inline-block rounded-md px-1.5 py-0.5 font-display text-[12px] ${
+                        itemPrice?.manual ? 'bg-pika text-ink' : 'bg-ink text-white'
+                      }`}
+                    >
                       {price ?? 'Prix n.c.'}
                     </p>
 
@@ -202,6 +199,7 @@ export default function CollectionGrid({ items, onAddOne, onRemoveOne, onDelete,
           onAddOne={onAddOne}
           onRemoveOne={onRemoveOne}
           onDelete={onDelete}
+          onSetPrice={onSetPrice}
         />
       )}
     </div>

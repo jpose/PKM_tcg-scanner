@@ -1,4 +1,4 @@
-import { CardVariant, PokemonCard } from '../types';
+import { CardVariant, PokemonCard, VariantDetailed } from '../types';
 
 // TCGdex : API Pokémon TCG gratuite, sans clé, activement maintenue.
 // https://tcgdex.dev — remplace pokemontcg.io/Scrydex, dont les nouvelles
@@ -81,22 +81,46 @@ function listBriefs(lang: string, name: string): Promise<CardBrief[]> {
   return promise;
 }
 
-/** Charge les fiches complètes (prix, variantes…) en parallèle, avec cache. */
+async function fetchDetail(lang: string, id: string, fresh = false): Promise<PokemonCard | null> {
+  const key = `${lang}:${id}`;
+  if (!fresh) {
+    const cached = detailCache.get(key);
+    if (cached) return cached;
+  }
+  try {
+    const res = await fetchWithRetry(`${BASE_URL}/${lang}/cards/${id}`);
+    if (!res.ok) return null;
+    const card = (await res.json()) as PokemonCard;
+    detailCache.set(key, card);
+    return card;
+  } catch {
+    return null;
+  }
+}
+
+// Les visuels dépendent de la langue : une carte récente peut avoir son scan en
+// anglais mais pas encore en français. La carte est la même : on emprunte l'image.
+const IMAGE_FALLBACK_LANGS = ['en', 'de', 'es', 'it'];
+const imageBorrowCache = new Map<string, string | null>();
+
+export async function withImage(card: PokemonCard, lang: string): Promise<PokemonCard> {
+  if (card.image) return card;
+  if (!imageBorrowCache.has(card.id)) {
+    const others = await Promise.all(
+      IMAGE_FALLBACK_LANGS.filter((l) => l !== lang).map((l) => fetchDetail(l, card.id))
+    );
+    imageBorrowCache.set(card.id, others.find((c) => c?.image)?.image ?? null);
+  }
+  const borrowed = imageBorrowCache.get(card.id);
+  return borrowed ? { ...card, image: borrowed } : card;
+}
+
+/** Charge les fiches complètes (prix, variantes, image) en parallèle, avec cache. */
 export async function loadDetails(lang: string, briefs: CardBrief[], limit = 12): Promise<PokemonCard[]> {
   const details = await Promise.all(
     briefs.slice(0, limit).map(async (brief) => {
-      const key = `${lang}:${brief.id}`;
-      const cached = detailCache.get(key);
-      if (cached) return cached;
-      try {
-        const res = await fetchWithRetry(`${BASE_URL}/${lang}/cards/${brief.id}`);
-        if (!res.ok) return null;
-        const card = (await res.json()) as PokemonCard;
-        detailCache.set(key, card);
-        return card;
-      } catch {
-        return null;
-      }
+      const card = await fetchDetail(lang, brief.id);
+      return card ? withImage(card, lang) : null;
     })
   );
   return details.filter((c): c is PokemonCard => c !== null);
@@ -232,6 +256,15 @@ function isVariantKey(key: string, variant: CardVariant): boolean {
   return VARIANT_KEYWORDS[variant].some((kw) => lk.includes(kw));
 }
 
+// Champs plats de Cardmarket : les suffixes « -holo » (trend-holo, avg30-holo…)
+// portent le prix de la version brillante, reverse comme holo.
+function isFlatVariantKey(key: string, variant: CardVariant): boolean {
+  const lk = key.toLowerCase().replace(/[\s_-]/g, '');
+  if (variant === 'firstEdition') return lk.includes('1st');
+  if (variant === 'reverse' || variant === 'holo') return lk.includes('holo') && !lk.includes('1st');
+  return false;
+}
+
 function extractNumericPrice(value: unknown): number | undefined {
   if (typeof value === 'number') return value;
   if (value && typeof value === 'object') {
@@ -274,7 +307,7 @@ function findVariantPrice(
     return i === -1 ? 99 : i;
   };
   const flat = Object.entries(block)
-    .filter(([key, value]) => isVariantKey(key, variant) && typeof value === 'number')
+    .filter(([key, value]) => isFlatVariantKey(key, variant) && typeof value === 'number')
     .sort((a, b) => rankOf(a[0]) - rankOf(b[0]));
   if (flat.length > 0) return flat[0][1] as number;
 
@@ -291,18 +324,61 @@ function findVariantPrice(
  * Extrait le prix d'une carte pour une variante précise (normale, reverse,
  * holo, 1ère édition), en essayant Cardmarket (EUR) puis TCGPlayer (USD).
  */
+const isFirstEdition = (v: VariantDetailed) =>
+  !!v.stamp?.some((st) => st.toLowerCase().replace(/[\s_-]/g, '').includes('1stedition'));
+
+function detailedMatches(v: VariantDetailed, variant: CardVariant): boolean {
+  if (variant === 'firstEdition') return isFirstEdition(v);
+  return v.type === variant && !isFirstEdition(v);
+}
+
+// Une carte sans version « normale » (ex. promo uniquement holo) : son prix
+// Cardmarket est dans les champs génériques (trend, avg…), pas dans « -holo ».
+function isSoleVariant(card: PokemonCard): boolean {
+  if (card.variants) return card.variants.normal !== true;
+  if (card.variants_detailed) return !card.variants_detailed.some((v) => v.type === 'normal');
+  return false;
+}
+
+function priceFromBlocks(
+  cardmarket: Record<string, any> | null | undefined,
+  tcgplayer: Record<string, any> | null | undefined,
+  variant: CardVariant,
+  sole: boolean,
+  own: boolean // true : bloc de cotes propre à cette version (variants_detailed)
+): Price | null {
+  // Champs génériques (trend, avg…) = prix de cette version seulement si elle est la
+  // seule de la carte, ou si c'est une 1ère édition dotée de son propre produit.
+  const genericOk = variant !== 'normal' && (sole || (own && variant === 'firstEdition'));
+
+  let eur = findVariantPrice(cardmarket ?? undefined, variant);
+  if (eur === undefined && genericOk) eur = extractNumericPrice(cardmarket ?? undefined);
+  if (eur !== undefined) return { value: eur, currency: 'EUR' };
+
+  let usd = findVariantPrice(tcgplayer ?? undefined, variant);
+  if (usd === undefined && genericOk && tcgplayer) {
+    for (const nested of Object.values(tcgplayer)) {
+      const n = extractNumericPrice(nested);
+      if (n !== undefined) {
+        usd = n;
+        break;
+      }
+    }
+  }
+  return usd !== undefined ? { value: usd, currency: 'USD' } : null;
+}
+
 function strictPrice(card: PokemonCard, variant: CardVariant): Price | null {
-  const cardmarketPrice = findVariantPrice(card.pricing?.cardmarket, variant);
-  if (cardmarketPrice !== undefined) {
-    return { value: cardmarketPrice, currency: 'EUR' };
-  }
+  const sole = isSoleVariant(card);
 
-  const tcgplayerPrice = findVariantPrice(card.pricing?.tcgplayer, variant);
-  if (tcgplayerPrice !== undefined) {
-    return { value: tcgplayerPrice, currency: 'USD' };
+  // 1) La cote propre à cette version, publiée par TCGdex (variants_detailed)
+  for (const v of card.variants_detailed ?? []) {
+    if (!detailedMatches(v, variant)) continue;
+    const price = priceFromBlocks(v.pricing?.cardmarket, v.pricing?.tcgplayer, variant, sole, true);
+    if (price) return price;
   }
-
-  return null;
+  // 2) La cote globale de la carte
+  return priceFromBlocks(card.pricing?.cardmarket, card.pricing?.tcgplayer, variant, sole, false);
 }
 
 // Si la variante exacte n'a pas de prix, on prend la plus proche (marquée "approx")
@@ -311,7 +387,7 @@ const FALLBACK_ORDER: Record<CardVariant, CardVariant[]> = {
   normal: ['normal', 'reverse', 'holo', 'firstEdition'],
   reverse: ['reverse', 'holo', 'normal', 'firstEdition'],
   holo: ['holo', 'reverse', 'firstEdition', 'normal'],
-  firstEdition: ['firstEdition', 'holo', 'normal', 'reverse'],
+  firstEdition: ['firstEdition'], // jamais le prix d'une autre version : l'écart est trop grand
 };
 
 export function getPriceForVariant(card: PokemonCard, variant: CardVariant): Price | null {
@@ -362,15 +438,11 @@ async function fetchWithRetry(url: string, attempts = 2): Promise<Response> {
   return lastRes as Response;
 }
 
-/** Recharge une fiche complète (prix à jour) à partir de son identifiant. */
+/** Recharge une fiche complète (cotes à jour, image) à partir de son identifiant. */
 export async function fetchCardById(id: string): Promise<PokemonCard | null> {
   for (const lang of LANGS) {
-    try {
-      const res = await fetchWithRetry(`${BASE_URL}/${lang}/cards/${id}`);
-      if (res.ok) return (await res.json()) as PokemonCard;
-    } catch {
-      /* on tente la langue suivante */
-    }
+    const card = await fetchDetail(lang, id, true);
+    if (card) return withImage(card, lang);
   }
   return null;
 }

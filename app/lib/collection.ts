@@ -81,10 +81,30 @@ export function deleteFromCollection(itemId: string): CollectionItem[] {
  * selon la carte. On ne les additionne pas entre devises différentes :
  * on renvoie un total par devise.
  */
+export type ItemPrice = { value: number; currency: 'EUR' | 'USD'; approx?: boolean; manual?: boolean };
+
+/** Cote d'un exemplaire : celle saisie à la main si elle existe, sinon celle des bases. */
+export function getItemPrice(item: CollectionItem): ItemPrice | null {
+  if (typeof item.customPrice === 'number' && item.customPrice >= 0) {
+    return { value: item.customPrice, currency: 'EUR', manual: true };
+  }
+  return getPriceForVariant(item.card, item.variant);
+}
+
+export function setCustomPrice(itemId: string, value: number | null): CollectionItem[] {
+  const items = loadCollection().map((i) => {
+    if (i.id !== itemId) return i;
+    const { customPrice: _old, ...rest } = i;
+    return value === null ? rest : { ...rest, customPrice: value };
+  });
+  saveCollection(items);
+  return items;
+}
+
 export function getCollectionValue(items: CollectionItem[]): { eur: number; usd: number } {
   return items.reduce(
     (totals, item) => {
-      const price = getPriceForVariant(item.card, item.variant);
+      const price = getItemPrice(item);
       if (!price) return totals;
       if (price.currency === 'EUR') {
         totals.eur += price.value * item.quantity;
@@ -118,7 +138,16 @@ export async function refreshCollectionPrices(): Promise<CollectionItem[]> {
   const next = items.map((item) => {
     const f = fresh.get(item.card.id);
     return f
-      ? { ...item, card: { ...item.card, pricing: f.pricing, variants: f.variants ?? item.card.variants } }
+      ? {
+          ...item,
+          card: {
+            ...item.card,
+            pricing: f.pricing,
+            variants: f.variants ?? item.card.variants,
+            variants_detailed: f.variants_detailed ?? item.card.variants_detailed,
+            image: f.image ?? item.card.image,
+          },
+        }
       : item;
   });
   saveCollection(next);
@@ -144,9 +173,13 @@ export function mergeIntoCollection(imported: CollectionItem[]): {
     if (!existing) {
       map.set(key, inc);
       added++;
-    } else if (inc.quantity > existing.quantity) {
-      map.set(key, { ...existing, quantity: inc.quantity });
-      updated++;
+    } else {
+      const quantity = Math.max(existing.quantity, inc.quantity);
+      const customPrice = existing.customPrice ?? inc.customPrice;
+      if (quantity !== existing.quantity || customPrice !== existing.customPrice) {
+        map.set(key, { ...existing, quantity, customPrice });
+        updated++;
+      }
     }
   }
   const items = Array.from(map.values()).sort((a, b) => b.addedAt - a.addedAt);

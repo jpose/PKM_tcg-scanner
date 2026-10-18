@@ -1,5 +1,5 @@
 import { CardVariant, CollectionItem, VARIANT_LABELS } from '../types';
-import { getPriceForVariant } from './pokemonTcg';
+import { getItemPrice } from './collection';
 
 const VARIANTS: CardVariant[] = ['normal', 'reverse', 'holo', 'firstEdition'];
 const IMAGE_HOST = 'https://assets.tcgdex.net/';
@@ -18,14 +18,14 @@ export function buildJson(items: CollectionItem[]): string {
 
 // CSV prévu pour Excel en français : séparateur « ; », virgule décimale, BOM UTF-8.
 export function buildCsv(items: CollectionItem[]): string {
-  const header = ['Nom', 'Édition', 'Numéro', 'Rareté', 'Variante', 'Quantité', 'Prix unitaire', 'Devise', 'Valeur totale', 'Prix approximatif', 'Identifiant'];
+  const header = ['Nom', 'Édition', 'Numéro', 'Rareté', 'Variante', 'Quantité', 'Prix unitaire', 'Devise', 'Valeur totale', 'Nature du prix', 'Identifiant'];
   const esc = (v: string | number) => {
     const s = String(v);
     return /[;"\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const money = (n: number) => n.toFixed(2).replace('.', ',');
   const rows = items.map((i) => {
-    const p = getPriceForVariant(i.card, i.variant);
+    const p = getItemPrice(i);
     return [
       i.card.name,
       i.card.set?.name ?? '',
@@ -36,7 +36,7 @@ export function buildCsv(items: CollectionItem[]): string {
       p ? money(p.value) : '',
       p ? p.currency : '',
       p ? money(p.value * i.quantity) : '',
-      p?.approx ? 'oui' : '',
+      p?.manual ? 'saisi à la main' : p?.approx ? 'approximatif' : '',
       i.card.id,
     ];
   });
@@ -59,11 +59,18 @@ export function parseBackup(text: string): CollectionItem[] {
     if (!card || typeof card.id !== 'string' || typeof card.name !== 'string') continue;
     const variant: CardVariant = VARIANTS.includes(raw.variant) ? raw.variant : 'normal';
     const quantity = Math.max(1, Math.min(9999, Math.floor(Number(raw.quantity) || 1)));
+    const rawPrice = raw.customPrice;
+    const customPrice =
+      rawPrice !== null && rawPrice !== undefined && rawPrice !== '' && Number.isFinite(Number(rawPrice)) &&
+      Number(rawPrice) >= 0 && Number(rawPrice) <= 1_000_000
+        ? Number(rawPrice)
+        : undefined;
     out.push({
       id: `${card.id}::${variant}-${Date.now()}-${out.length}`,
       variant,
       quantity,
       addedAt: Number(raw.addedAt) || Date.now(),
+      customPrice,
       card: {
         ...card,
         localId: String(card.localId ?? ''),

@@ -18,6 +18,17 @@ export const VARIANT_LABELS: Record<CardVariant, string> = {
 // Format d'une carte tel que renvoyé par l'API TCGdex (api.tcgdex.net)
 // Champs volontairement optionnels/larges : l'API évolue et tous les
 // champs ne sont pas garantis sur toutes les cartes (Pokémon/Dresseur/Énergie).
+// Une version précise de la carte (normale, reverse, holo…), avec sa propre cote.
+export interface VariantDetailed {
+  type: string;
+  stamp?: string[];
+  thirdParty?: { cardmarket?: number; tcgplayer?: number };
+  pricing?: {
+    cardmarket?: Record<string, any> | null;
+    tcgplayer?: Record<string, any> | null;
+  };
+}
+
 export interface PokemonCard {
   id: string;
   localId: string;
@@ -37,9 +48,10 @@ export interface PokemonCard {
   };
   // Quelles variantes existent physiquement pour cette carte précise.
   variants?: Partial<Record<CardVariant, boolean>>;
+  variants_detailed?: VariantDetailed[];
   pricing?: {
-    cardmarket?: Record<string, any>;
-    tcgplayer?: Record<string, any>;
+    cardmarket?: Record<string, any> | null;
+    tcgplayer?: Record<string, any> | null;
   };
 }
 
@@ -49,4 +61,6 @@ export interface CollectionItem {
   variant: CardVariant;
   addedAt: number;
   quantity: number;
+  // Cote saisie à la main (en €), prioritaire sur celle des bases de données.
+  customPrice?: number;
 }

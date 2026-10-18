@@ -47,3 +47,8 @@ export function foilClass(variant: CardVariant): string {
       return '';
   }
 }
+
+// TCGdex renvoie « None » pour les cartes sans rareté (promos, McDonald's…).
+export function displayRarity(rarity?: string): string | undefined {
+  return rarity && !/^(none|aucune|-)$/i.test(rarity.trim()) ? rarity : undefined;
+}

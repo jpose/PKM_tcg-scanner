@@ -1,10 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import Image from 'next/image';
 import { CardVariant, PokemonCard, VARIANT_LABELS } from '../types';
-import { buildCardImageUrl, getAvailableVariants, getBestPrice } from '../lib/pokemonTcg';
-import { formatPrice, typeStyle } from '../lib/ui';
+import { getAvailableVariants, getBestPrice } from '../lib/pokemonTcg';
+import { displayRarity, formatPrice, typeStyle } from '../lib/ui';
+import CardImage from './CardImage';
 import CardCorrection from './CardCorrection';
 
 interface Props {
@@ -69,7 +69,6 @@ export default function CardResults({ cards, identified, onAdd, onDismiss, manua
       ) : (
         <ul className="space-y-3">
           {shown.slice(0, 8).map((card, index) => {
-            const img = buildCardImageUrl(card, 'low', 'webp');
             const variants = getAvailableVariants(card);
             const price = formatPrice(getBestPrice(card));
             const type = card.types?.[0];
@@ -79,9 +78,7 @@ export default function CardResults({ cards, identified, onAdd, onDismiss, manua
               <li key={card.id} className="panel p-3">
                 <div className="flex items-center gap-3">
                   <div className="w-[58px] shrink-0">
-                    {img && (
-                      <Image src={img} alt="" width={245} height={342} unoptimized className="h-auto w-full rounded-md" />
-                    )}
+                    <CardImage card={card} rounded="rounded-md" />
                   </div>
                   <div className="min-w-0 flex-1">
                     {index === 0 && !override && (
@@ -99,7 +96,9 @@ export default function CardResults({ cards, identified, onAdd, onDismiss, manua
                           {type}
                         </span>
                       )}
-                      {card.rarity && <span className="text-[11px] font-bold text-ink/55">{card.rarity}</span>}
+                      {displayRarity(card.rarity) && (
+                        <span className="text-[11px] font-bold text-ink/55">{displayRarity(card.rarity)}</span>
+                      )}
                     </div>
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-2">

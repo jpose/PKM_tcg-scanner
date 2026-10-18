@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
-import Image from 'next/image';
+import { useEffect, useRef, useState } from 'react';
+import CardImage from './CardImage';
 import { CollectionItem, VARIANT_LABELS } from '../types';
-import { buildCardImageUrl, getPriceForVariant } from '../lib/pokemonTcg';
-import { foilClass, formatPrice, typeStyle } from '../lib/ui';
+import { getItemPrice } from '../lib/collection';
+import { displayRarity, foilClass, formatPrice, typeStyle } from '../lib/ui';
 
 interface Props {
   item: CollectionItem;
@@ -12,6 +12,7 @@ interface Props {
   onAddOne: (id: string) => void;
   onRemoveOne: (id: string) => void;
   onDelete: (id: string) => void;
+  onSetPrice: (id: string, value: number | null) => void;
 }
 
 // Libellés des champs de prix. On reste volontairement tolérant : on n'affiche
@@ -40,7 +41,7 @@ function variantFromKey(key: string): string {
   return 'Normale';
 }
 
-function cardmarketRows(block?: Record<string, any>) {
+function cardmarketRows(block?: Record<string, any> | null) {
   if (!block) return [];
   const rows: { label: string; value: number }[] = [];
   for (const [key, value] of Object.entries(block)) {
@@ -51,7 +52,7 @@ function cardmarketRows(block?: Record<string, any>) {
   return rows;
 }
 
-function tcgplayerGroups(block?: Record<string, any>) {
+function tcgplayerGroups(block?: Record<string, any> | null) {
   if (!block) return [];
   const groups: { title: string; rows: { label: string; value: number }[] }[] = [];
   for (const [key, value] of Object.entries(block)) {
@@ -67,13 +68,15 @@ function tcgplayerGroups(block?: Record<string, any>) {
 const money = (n: number, cur: 'EUR' | 'USD') =>
   `${n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${cur === 'EUR' ? '€' : '$'}`;
 
-function updatedLabel(block?: Record<string, any>): string | null {
+function updatedLabel(block?: Record<string, any> | null): string | null {
   const d = block?.updated ? new Date(block.updated) : null;
   return d && !Number.isNaN(d.getTime()) ? d.toLocaleDateString('fr-FR') : null;
 }
 
-export default function CardDetail({ item, onClose, onAddOne, onRemoveOne, onDelete }: Props) {
+export default function CardDetail({ item, onClose, onAddOne, onRemoveOne, onDelete, onSetPrice }: Props) {
   const { card, variant } = item;
+  const [draft, setDraft] = useState(item.customPrice !== undefined ? String(item.customPrice).replace('.', ',') : '');
+  const [draftError, setDraftError] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -88,8 +91,7 @@ export default function CardDetail({ item, onClose, onAddOne, onRemoveOne, onDel
     };
   }, [onClose]);
 
-  const img = buildCardImageUrl(card, 'high', 'webp');
-  const price = getPriceForVariant(card, variant);
+  const price = getItemPrice(item);
   const cm = card.pricing?.cardmarket;
   const tcg = card.pricing?.tcgplayer;
   const cmRows = cardmarketRows(cm);
@@ -97,10 +99,21 @@ export default function CardDetail({ item, onClose, onAddOne, onRemoveOne, onDel
   const type = card.types?.[0];
   const ts = typeStyle(type);
 
+  function saveCustomPrice(e: React.FormEvent) {
+    e.preventDefault();
+    const value = Number(draft.trim().replace(',', '.'));
+    if (!draft.trim() || !Number.isFinite(value) || value < 0 || value > 1_000_000) {
+      setDraftError(true);
+      return;
+    }
+    setDraftError(false);
+    onSetPrice(item.id, Math.round(value * 100) / 100);
+  }
+
   const facts: [string, string | number | undefined][] = [
     ['Édition', card.set?.name],
     ['Numéro', card.localId],
-    ['Rareté', card.rarity],
+    ['Rareté', displayRarity(card.rarity)],
     ['Catégorie', card.category],
     ['PV', card.hp],
     ['Illustrateur', card.illustrator],
@@ -126,9 +139,7 @@ export default function CardDetail({ item, onClose, onAddOne, onRemoveOne, onDel
 
         <div className="px-5 pb-6 pt-5">
           <div className={`mx-auto w-56 ${foilClass(variant)}`}>
-            {img && (
-              <Image src={img} alt={card.name} width={600} height={838} unoptimized className="h-auto w-full rounded-[10px]" />
-            )}
+            <CardImage card={card} quality="high" rounded="rounded-[10px]" />
           </div>
 
           <h2 className="mt-4 text-center font-display text-2xl leading-tight">{card.name}</h2>
@@ -149,6 +160,12 @@ export default function CardDetail({ item, onClose, onAddOne, onRemoveOne, onDel
             <p className="font-display text-3xl">{formatPrice(price) ?? 'Cote indisponible'}</p>
             {price?.approx && (
               <p className="text-xs font-semibold text-ink/60">Estimation : prix de la version la plus proche.</p>
+            )}
+            {price?.manual && <p className="text-xs font-semibold text-ink/60">Cote saisie par vous.</p>}
+            {!price && (
+              <p className="text-xs font-semibold text-ink/60">
+                Aucune cote n’existe pour cette carte dans la base (fréquent pour les promos récentes). Vous pouvez saisir la vôtre.
+              </p>
             )}
             <div className="mt-3 flex items-center justify-between gap-3">
               <div className="flex items-center rounded-lg border-2 border-ink/25 bg-white">
@@ -176,6 +193,41 @@ export default function CardDetail({ item, onClose, onAddOne, onRemoveOne, onDel
                 </p>
               )}
             </div>
+            <form onSubmit={saveCustomPrice} className="mt-3 border-t-2 border-dashed border-ink/15 pt-3">
+              <label htmlFor="custom-price" className="text-xs font-extrabold text-ink/60">
+                {price && !price.manual ? 'Utiliser ma propre cote (€)' : 'Ma cote par exemplaire (€)'}
+              </label>
+              <div className="mt-1 flex gap-2">
+                <input
+                  id="custom-price"
+                  inputMode="decimal"
+                  value={draft}
+                  onChange={(e) => {
+                    setDraft(e.target.value);
+                    setDraftError(false);
+                  }}
+                  placeholder="ex. 3,50"
+                  className="min-w-0 flex-1 rounded-xl border-2 border-ink bg-white px-3 py-1.5 text-sm font-bold placeholder:font-semibold placeholder:text-ink/40"
+                />
+                <button type="submit" className="btn-chunky bg-pika">
+                  OK
+                </button>
+                {item.customPrice !== undefined && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSetPrice(item.id, null);
+                      setDraft('');
+                      setDraftError(false);
+                    }}
+                    className="btn-chunky bg-white"
+                  >
+                    Effacer
+                  </button>
+                )}
+              </div>
+              {draftError && <p className="mt-1 text-xs font-extrabold text-dex-deep">Saisissez un nombre, par exemple 3,50.</p>}
+            </form>
           </div>
 
           {/* Informations */}

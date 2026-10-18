@@ -15,6 +15,7 @@ import {
   loadCollection,
   refreshCollectionPrices,
   removeOneFromCollection,
+  setCustomPrice,
 } from './lib/collection';
 
 type Tab = 'scan' | 'collection';
@@ -209,6 +210,7 @@ export default function Home() {
               onAddOne={handleAddOne}
               onRemoveOne={(id) => setCollection(removeOneFromCollection(id))}
               onDelete={(id) => setCollection(deleteFromCollection(id))}
+              onSetPrice={(id, value) => setCollection(setCustomPrice(id, value))}
               onScan={() => setTab('scan')}
             />
             <BackupPanel items={collection} onChange={setCollection} />
